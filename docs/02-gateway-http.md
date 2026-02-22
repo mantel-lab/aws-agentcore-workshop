@@ -9,7 +9,7 @@ By the end of this module, you will:
 
 1. Understand how AgentCore Gateway integrates external APIs
 2. Register an HTTP target pointing to Finnhub stock price API
-3. Update the agent to use the new tool
+3. Understand how tool routing works between agent code and Gateway targets
 4. Query the agent for real-time stock prices
 5. Understand the difference between tools and targets
 
@@ -37,6 +37,7 @@ flowchart TB
     Agent -->|Brief| User
     
     Gateway -.->|API Key| Secrets[Secrets Manager]
+    Gateway -.->|OpenAPI Spec| S3[S3 Bucket]
     
     classDef runtime fill:#E8EAF6,stroke:#7986CB,color:#3F51B5
     classDef gateway fill:#F3E5F5,stroke:#BA68C8,color:#8E24AA
@@ -46,18 +47,17 @@ flowchart TB
     class Agent runtime
     class Gateway gateway
     class Finnhub external
-    class Secrets data
+    class Secrets,S3 data
 ```
 
 ## Why Finnhub?
 
-**Finnhub** provides a free tier stock data API that's perfect for workshops:
+**Finnhub** provides a free tier stock data API that's practical for workshops:
 
 - **Free tier** - 60 API calls/minute with free API key
 - **No credit card** - Registration only requires email
 - **Real-time data** - Current prices, day ranges, trading volume
 - **Simple API** - Single endpoint for quote data
-- **Reliable** - Backed by professional market data providers
 
 **API endpoint:**
 ```
@@ -79,297 +79,307 @@ GET https://finnhub.io/api/v1/quote?symbol=AAPL&token=YOUR_API_KEY
 ## Step 1: Get a Finnhub API Key
 
 1. Navigate to https://finnhub.io/register
-2. Register with your email
+2. Register with your email address
 3. Verify your email
 4. Copy your API key from the dashboard
-5. Store it in AWS Secrets Manager:
 
-```bash
-aws secretsmanager create-secret \
-    --name marketpulse/finnhub-api-key \
-    --secret-string "your_api_key_here" \
-    --region ap-southeast-2
-```
+You will provide this key via `terraform.tfvars` in Step 3. Terraform stores it in Secrets Manager automatically - no manual secret creation is required.
 
-## Step 2: Update Agent Code
+## Step 2: Review the Agent Code
 
-Edit `agent/app.py` to add the stock price tool:
+The stock price tool is already declared in `agent/app.py`. You do not need to modify the agent code for this module.
+
+Review the relevant section:
 
 ```python
-from bedrock_agentcore import BedrockAgentCoreApp
-from strands_agents import Agent
+from bedrock_agentcore.runtime import BedrockAgentCoreApp
+from strands import Agent
+from strands.models import BedrockModel
 
-agent = Agent(
-    name="MarketPulse",
-    model="anthropic.claude-sonnet-4-5-20250929-v1:0",
-    instructions="""
-    You are MarketPulse, an AI investment brief assistant for financial advisors.
-    
-    You now have access to real-time stock price data via the get_stock_price tool.
-    Always use this tool when asked about current stock prices.
-    
-    Present price information clearly:
-    - Current price
-    - Day range (low to high)
-    - Price change from previous close
-    
-    Always cite that data is from Finnhub and is real-time.
+def get_stock_price(symbol: str) -> dict:
     """
-)
-
-# Tool will be registered by Gateway - agent just declares it
-@agent.tool
-def get_stock_price(ticker: str) -> dict:
-    """
-    Get real-time stock price data for a ticker symbol.
+    Retrieves current stock price and trading data for a ticker symbol.
+    
+    This tool is routed through AgentCore Gateway to the Finnhub API.
     
     Args:
-        ticker: Stock ticker symbol (e.g., 'AAPL', 'TSLA', 'MSFT')
-    
+        symbol: Stock ticker symbol (e.g., AAPL, MSFT, TSLA)
+        
     Returns:
-        dict: Current price, day range, and previous close
+        dict: Stock quote data with current price, day range, etc.
     """
-    # Gateway implementation - this is just the schema
+    # Implementation handled by AgentCore Gateway
     pass
 
-app = BedrockAgentCoreApp(agent)
+# Build tool list based on enabled features
+tools = []
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+if os.environ.get("ENABLE_GATEWAY", "false").lower() == "true":
+    tools.append(get_stock_price)
+
+agent = Agent(
+    model=model,
+    tools=tools,
+    system_prompt=system_prompt
+)
 ```
 
-**Key changes:**
+**What's happening here:**
 
-1. **Updated instructions** - Agent knows it has access to stock prices
-2. **Tool declaration** - `@agent.tool` decorator defines the tool schema
-3. **No implementation** - Gateway handles the actual HTTP call
+- `get_stock_price` is a plain function with a docstring and type hints only
+- The function body is empty (`pass`) because AgentCore Gateway handles the actual HTTP call
+- The function is appended to `tools` only when `ENABLE_GATEWAY=true` is set as an environment variable
+- Terraform sets this environment variable on the Runtime when `enable_gateway = true` in `terraform.tfvars`
+
+When the agent calls `get_stock_price`, AgentCore intercepts the call and routes it to the Gateway target. The Gateway matches the call to the registered target by function name (which matches the OpenAPI `operationId`), appends the API key from Secrets Manager, and calls Finnhub directly.
 
 ## Step 3: Configure Terraform
 
-Edit `terraform/terraform.tfvars`:
+Edit `terraform/terraform.tfvars` to enable Gateway and HTTP target, and add your Finnhub API key:
 
 ```hcl
-# Feature Flags (Enable Gateway and HTTP target)
-enable_runtime = true
-enable_gateway = true
-enable_http_target = true
+# Feature Flags
+enable_gateway       = true
+enable_http_target   = true
 enable_lambda_target = false
-enable_mcp_target = false
-enable_memory = false
-enable_identity = false
+enable_mcp_target    = false
+enable_memory        = false
+enable_identity      = false
 enable_observability = false
+
+# Finnhub API Key (required when enable_http_target = true)
+finnhub_api_key = "your_finnhub_api_key_here"
 ```
 
-**What changed:** `enable_gateway` and `enable_http_target` are now `true`.
+**What changed:** `enable_gateway` and `enable_http_target` are now `true`. The `finnhub_api_key` tells Terraform to store your key in Secrets Manager.
 
-## Step 4: Rebuild and Deploy
+## Step 4: Deploy
 
-Rebuild the agent with the updated tool:
-
-```bash
-./scripts/build-agent.sh
-```
-
-Deploy with Terraform:
+Run Terraform to deploy the Gateway components:
 
 ```bash
 cd terraform
+terraform plan   # Review what will be created
 terraform apply
 ```
 
 **What Terraform creates:**
 
-- AgentCore Gateway instance
-- HTTP target pointing to Finnhub API
-- IAM permissions for Gateway access
-- Secrets Manager integration for API key
+- IAM role for Gateway with permissions to invoke targets and read Secrets Manager
+- S3 bucket for storing the OpenAPI specification
+- OpenAPI spec describing the Finnhub quote endpoint (uploaded to S3)
+- Secrets Manager secret containing your Finnhub API key
+- AgentCore Gateway (via AWS CLI)
+- Gateway API key credential provider linked to the secret
+- Gateway HTTP target pointing to Finnhub, with the OpenAPI spec as its schema
+
+Terraform also updates the Runtime's `ENABLE_GATEWAY` environment variable to `true`. This activates the `get_stock_price` tool in the running agent.
+
+**You do not need to rebuild the agent container.** Terraform updates the Runtime environment variables in place. The existing image picks up the new configuration.
 
 **Expected output:**
 
 ```
-Apply complete! Resources: 3 added, 1 changed, 0 destroyed.
+Apply complete! Resources: 8 added, 1 changed, 0 destroyed.
 
 Outputs:
 
-agent_endpoint = "https://abc123.agentcore.ap-southeast-2.amazonaws.com"
-gateway_id = "gtw-xyz789"
-http_target_id = "tgt-finnhub-123"
+agent_endpoint_id = "ep-abc123"
+agent_endpoint_name = "marketpulse_workshop_agent_endpoint"
+agent_runtime_arn = "arn:aws:bedrock-agentcore:ap-southeast-2:123456789012:runtime/runtime-xyz789"
+finnhub_target_configured = true
+gateway_id = <sensitive>
+openapi_spec_bucket = "marketpulse-workshop-openapi-specs"
 ```
+
+`gateway_id` is marked sensitive and will not show as plain text. The value is stored in SSM Parameter Store at `/${project_name}/${environment}/gateway-id`.
+
+Wait 1-2 minutes after apply completes for the Runtime to pick up the new environment variables.
 
 ## Step 5: Test Stock Price Queries
 
-Test with a simple stock query:
+Use the dedicated stock price test script:
 
 ```bash
-python scripts/test-agent.py "What is the current price of Apple stock?"
+python scripts/test-stock.py
 ```
 
-**Expected response:**
+This script runs three queries against the agent: a single stock price, a multi-stock comparison, and a trading range query.
+
+**Expected output:**
 
 ```
+AWS AgentCore Workshop: Testing Stock Price Tool (Module 2)
+======================================================================
+
+Retrieving agent configuration from Terraform outputs...
+✓ Runtime ARN: arn:aws:bedrock-agentcore:ap-southeast-2:123456789012:runtime/runtime-xyz789
+✓ Endpoint Name: marketpulse_workshop_agent_endpoint
+✓ Gateway ID: gtw-abc123
+
+Running stock price tests...
+
+Test 1/3: Single stock price query
+Query: What is the current price of Apple stock (AAPL)?
+
 Agent Response:
-===============
+----------------------------------------------------------------------
+Apple Inc. (AAPL) - Current Market Data
 
-Current Market Data for Apple (AAPL):
-
-Price: $184.25
+Current Price: $184.25
 Day Range: $182.50 - $185.10
+Open: $183.00
 Previous Close: $183.50
 Change: +$0.75 (+0.41%)
 
-This data is real-time from Finnhub as of 2:15 PM AEDT.
-
-Apple is trading within its day range, showing moderate positive movement 
-from yesterday's close. Would you like me to assess this against a specific 
-client's risk profile?
+Data sourced from Finnhub (real-time).
+----------------------------------------------------------------------
 ```
 
-Test with multiple tickers:
+For multi-stock comparisons - the agent calls `get_stock_price` once per ticker and consolidates the results.
+
+## Step 6: Inspect Agent Logs
+
+The agent logs its activity to CloudWatch. View them with:
 
 ```bash
-python scripts/test-agent.py "Compare current prices for Apple and Microsoft"
+aws logs tail /aws/bedrock/agent/marketpulse_workshop_agent --follow \
+    --region ap-southeast-2
 ```
 
-The agent will call `get_stock_price` twice (once for AAPL, once for MSFT) and present a comparison.
-
-## Step 6: Inspect Gateway Logs
-
-View Gateway logs to see the HTTP calls:
-
-```bash
-aws logs tail /aws/bedrock-agentcore/gateway/marketpulse --follow
-```
+Replace `marketpulse_workshop_agent` with your actual runtime name if you changed `project_name` or `environment` in `terraform.tfvars`.
 
 **What to look for:**
 
 ```
-[INFO] Tool called: get_stock_price
-[INFO] Parameters: {"ticker": "AAPL"}
-[INFO] HTTP Target: finnhub-stock-api
-[INFO] Request: GET https://finnhub.io/api/v1/quote?symbol=AAPL
-[INFO] Response: 200 OK (142ms)
-[INFO] Returned: {"c": 184.25, "h": 185.10, "l": 182.50, ...}
+[INFO] MarketPulse received query: What is the current price of Apple stock (AAPL)?
+[INFO] Tools available: 1
+[INFO] Gateway enabled - stock price tool available
 ```
+
+You can also view the Gateway configuration in the AWS console:
+
+1. Navigate to **Bedrock** > **AgentCore** > **Gateways**
+2. Select your gateway
+3. View the registered targets under **Targets**
+4. See the `get-stock-price` target with its OpenAPI spec
 
 ## Understanding Tools vs Targets
 
-This is a critical concept in AgentCore Gateway:
+This is a key concept in AgentCore Gateway:
 
 ### Tool (Agent's View)
 
 ```python
-@agent.tool
-def get_stock_price(ticker: str) -> dict:
-    """Get real-time stock price data"""
+def get_stock_price(symbol: str) -> dict:
+    """Retrieves current stock price and trading data for a ticker symbol."""
     pass
 ```
 
-The agent sees a Python function signature. It knows:
-- **What it does** - Get stock price
-- **What it needs** - A ticker symbol
-- **What it returns** - Price data dict
+The agent sees a plain Python function signature. It knows:
+- **What it does** - Get stock price data
+- **What it needs** - A ticker symbol string
+- **What it returns** - A dict of price data
+
+The implementation is empty because the agent never executes it directly.
 
 ### Target (Gateway's Configuration)
 
-```hcl
-resource "aws_agentcore_http_target" "finnhub" {
-  name = "finnhub-stock-api"
-  url  = "https://finnhub.io/api/v1/quote"
-  
-  authentication {
-    type = "api_key"
-    api_key_secret_arn = aws_secretsmanager_secret.finnhub_key.arn
-  }
-  
-  request_mapping {
-    query_parameters = {
-      symbol = "$.ticker"
-      token  = "${secret:api_key}"
+The OpenAPI spec (stored in S3 and defined in `terraform/gateway.tf`) describes the external API:
+
+```json
+{
+  "openapi": "3.0.0",
+  "servers": [{ "url": "https://finnhub.io/api/v1" }],
+  "paths": {
+    "/quote": {
+      "get": {
+        "operationId": "get_stock_price",
+        "parameters": [
+          {
+            "name": "symbol",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ]
+      }
     }
   }
 }
 ```
 
-Gateway knows:
-- **Where to call** - Finnhub URL
-- **How to authenticate** - API key from Secrets Manager
-- **How to map parameters** - `ticker` → `symbol` query parameter
+The `operationId` (`get_stock_price`) is the link between the Python function and the API endpoint.
 
 ### The Bridge
 
-Gateway connects tools to targets:
+The Gateway target is registered via AWS CLI (inside a Terraform `null_resource` in `gateway.tf`). When the agent asks to call `get_stock_price("AAPL")`:
 
-```hcl
-resource "aws_agentcore_tool_association" "stock_price" {
-  agent_id  = aws_agentcore_agent.marketpulse.id
-  tool_name = "get_stock_price"
-  target_id = aws_agentcore_http_target.finnhub.id
-}
-```
-
-When the agent calls `get_stock_price("AAPL")`:
-
-1. Gateway receives the tool call
-2. Looks up the target (Finnhub HTTP API)
-3. Maps `ticker="AAPL"` to `symbol=AAPL` query parameter
-4. Adds API key from Secrets Manager
+1. AgentCore intercepts the call before the Python body executes
+2. Looks up the Gateway target whose `operationId` matches `get_stock_price`
+3. Maps the `symbol` argument to the `symbol` query parameter
+4. Retrieves the API key from Secrets Manager
 5. Sends `GET https://finnhub.io/api/v1/quote?symbol=AAPL&token=xxx`
-6. Returns response to agent
+6. Returns the response to the agent
 
-The agent never sees HTTP details, URLs, or API keys.
+The agent code never handles URLs, API keys, or HTTP responses directly.
+
+**Why AWS CLI instead of native Terraform resources?**
+
+The AWSCC provider does not yet have full Gateway support. Terraform `null_resource` provisioners call the AWS CLI to create the Gateway and register targets. The Terraform code handles idempotency by checking for an existing Gateway before creating a new one.
 
 ## Verification Checklist
 
-- [ ] Finnhub API key stored in Secrets Manager
-- [ ] Agent rebuilt with stock price tool
-- [ ] Terraform apply successful
-- [ ] `gateway_id` and `http_target_id` outputs received
-- [ ] Test query returns real stock prices
-- [ ] Gateway logs show HTTP calls to Finnhub
+- [ ] Finnhub API key added to `terraform.tfvars`
+- [ ] `enable_gateway = true` and `enable_http_target = true` in `terraform.tfvars`
+- [ ] `terraform apply` completed with `finnhub_target_configured = true` in outputs
+- [ ] `python scripts/test-stock.py` returns real stock prices
+- [ ] Agent logs visible in CloudWatch with received queries
 
 ## Common Issues
 
-### "Tool not found" error
+### Agent responds with general knowledge, not real prices
 
-**Cause:** Tool association not created in Gateway.
+**Cause:** The `ENABLE_GATEWAY` environment variable was not updated on the Runtime, or the Runtime has not picked up the change yet.
 
-**Solution:** Check Terraform outputs for `http_target_id`. If missing:
-```bash
-terraform taint aws_agentcore_tool_association.stock_price
-terraform apply
-```
+**Solution:** Wait 2 minutes after `terraform apply`, then retest. If the issue persists, verify the Runtime environment variables in the AWS console under **Bedrock** > **AgentCore** > **Runtimes** > your runtime > **Configuration**.
+
+### "Gateway not deployed yet" error from test-stock.py
+
+**Cause:** `gateway_id` output is null, meaning the Gateway was not created successfully.
+
+**Solution:** Check for errors in the `null_resource.gateway` provisioner output during `terraform apply`. Common causes are insufficient IAM permissions or AWS CLI not being installed.
 
 ### "Authentication failed" on Finnhub
 
-**Cause:** API key incorrect or not found in Secrets Manager.
+**Cause:** API key was entered incorrectly in `terraform.tfvars`.
 
 **Solution:**
 ```bash
-# Verify secret exists
+# Verify the secret value in Secrets Manager
 aws secretsmanager get-secret-value \
-    --secret-id marketpulse/finnhub-api-key \
-    --region ap-southeast-2
+    --secret-id marketpulse-workshop-finnhub-api-key \
+    --region ap-southeast-2 \
+    --query 'SecretString' --output text
 
-# Update if needed
-aws secretsmanager update-secret \
-    --secret-id marketpulse/finnhub-api-key \
-    --secret-string "your_correct_api_key"
+# If wrong, update terraform.tfvars with the correct key and re-apply
+cd terraform && terraform apply
 ```
 
-### Rate limit errors
+### Rate limit errors from Finnhub
 
-**Cause:** Free tier allows 60 calls/minute. Exceeded if testing heavily.
+**Cause:** Free tier allows 60 calls/minute. Heavy testing can exceed this.
 
-**Solution:** Wait 1 minute between test batches. Upgrade to paid tier if needed for production.
+**Solution:** Wait 60 seconds between test batches. For normal workshop usage, the free tier is sufficient.
 
-### Agent returns stale data
+### Agent returns stale data after enabling Gateway
 
-**Cause:** Agent may be using cached responses.
+**Cause:** The Runtime container has not picked up the latest environment variable changes.
 
-**Solution:** Gateway caching is disabled by default. If issues persist:
+**Solution:** Verify `terraform apply` completed cleanly with the Runtime diff showing `ENABLE_GATEWAY` being updated to `true`. If needed, force a Runtime update:
 ```bash
-# Force agent restart
-terraform taint aws_agentcore_agent.marketpulse
+cd terraform
+terraform taint awscc_bedrockagentcore_runtime.agent
 terraform apply
 ```
 
@@ -383,11 +393,11 @@ In financial services, AgentCore Gateway provides:
 4. **Rate Limiting** - Prevent costly API overruns
 5. **Fallback Handling** - Configure backup data sources if primary fails
 
-This is critical for FSI where:
-- Market data costs money (Bloomberg, Reuters)
-- Every external call must be audited
-- API keys are sensitive credentials
-- Rate limits prevent budget overruns
+This matters for FSI because:
+- Market data costs money (Bloomberg, Refinitiv/LSEG)
+- Every external call must be auditable for compliance
+- API keys are credentials subject to access control policies
+- Rate limits prevent runaway spend in automated scenarios
 
 ## Discussion Questions
 
@@ -407,31 +417,33 @@ This is critical for FSI where:
 
 **Module 2 additional costs:**
 
-- **AgentCore Gateway** - ~$0.10/hour
+- **AgentCore Gateway** - Charged per request (see current [pricing page](https://aws.amazon.com/bedrock/pricing/))
 - **Secrets Manager** - $0.40/month per secret
+- **S3** - Negligible for a single small JSON file
 - **Finnhub API** - Free tier (60 calls/minute)
+- **SSM Parameter Store** - Free for standard parameters
 
-**Estimated additional cost:** ~$1 for workshop duration.
+**Estimated additional cost for workshop duration:** Less than $1.
 
 ## Next Steps
 
-You've successfully connected an external API to your agent via AgentCore Gateway. The agent can now retrieve real-time stock prices.
+The agent can now retrieve real-time stock prices via AgentCore Gateway. Finnhub data flows through the Gateway to the agent without any API key handling in agent code.
 
-In [Module 3](03-gateway-lambda.md), you'll add a Lambda target to perform risk assessment calculations internally.
+In [Module 3](03-gateway-lambda.md), you'll add a Lambda target for risk assessment. Unlike HTTP targets (external APIs), Lambda targets run your own code - useful for compliance logic, data transformation, or internal systems.
 
 **Before proceeding:**
 
 - Test multiple stock tickers (AAPL, MSFT, TSLA, GOOGL)
-- Review Gateway logs to understand request/response flow
-- Ensure Secrets Manager contains your Finnhub API key
+- Verify the agent references current prices, not training data values
+- Check CloudWatch Logs to confirm the agent is receiving your queries
 
 ---
 
 **Key Takeaways:**
 
 - Gateway abstracts integration complexity from agent code
-- Tools define "what", targets define "where" and "how"
-- HTTP targets connect to external REST APIs
-- Secrets Manager secures API credentials
-- Tool associations link agent tools to Gateway targets
-- All integration calls are centrally logged for audit
+- Tools define what data the agent needs; OpenAPI `operationId` links the function name to the Gateway target
+- HTTP targets connect to external REST APIs using an OpenAPI specification
+- Secrets Manager stores credentials; agent code never handles API keys
+- Terraform manages the full Gateway configuration via feature flags
+- The container image does not need rebuilding when only environment variables change

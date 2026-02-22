@@ -3,7 +3,9 @@ FROM public.ecr.aws/docker/library/python:3.11-slim
 WORKDIR /app
 
 COPY requirements.txt requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt && \
+RUN apt-get update && apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/* && \
+    pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir aws-opentelemetry-distro==0.10.1
 
 # Create non-root user

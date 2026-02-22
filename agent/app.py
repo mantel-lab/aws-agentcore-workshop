@@ -15,9 +15,14 @@ Module 7: Observability with distributed tracing
 """
 
 import os
+import logging
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 from strands import Agent
 from strands.models import BedrockModel
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Initialise AgentCore app
 app = BedrockAgentCoreApp()
@@ -28,24 +33,80 @@ model = BedrockModel(
     model_id=model_id
 )
 
-# Create the MarketPulse agent
-agent = Agent(
-    model=model,
-    tools=[],  # Tools will be added in later modules
-    system_prompt="""
+# ============================================================================
+# Tool Configuration
+# ============================================================================
+
+# Module 2: Stock price tool via Gateway HTTP target
+# When Gateway is enabled, we define the tool function and AgentCore automatically
+# routes calls through the Gateway to the matching OpenAPI target based on tool name
+
+def get_stock_price(symbol: str) -> dict:
+    """
+    Retrieves current stock price and trading data for a ticker symbol.
+    
+    This tool is routed through AgentCore Gateway to the Finnhub API.
+    
+    Args:
+        symbol: Stock ticker symbol (e.g., AAPL, MSFT, TSLA)
+        
+    Returns:
+        dict: Stock quote data with current price, day range, etc.
+    """
+    # Implementation handled by AgentCore Gateway
+    # The Gateway routes this to the OpenAPI target based on function name
+    pass
+
+# Build tool list based on enabled features
+tools = []
+
+# Debug: log environment variable value
+gateway_env = os.environ.get("ENABLE_GATEWAY", "false")
+logger.info(f"DEBUG: ENABLE_GATEWAY={gateway_env} (type: {type(gateway_env)})")
+logger.info(f"DEBUG: After lower(): '{gateway_env.lower()}'")
+logger.info(f"DEBUG: Comparison result: {gateway_env.lower() == 'true'}")
+
+if gateway_env.lower() == "true":
+    logger.info("Gateway enabled - stock price tool available")
+    tools.append(get_stock_price)
+else:
+    logger.info(f"Gateway NOT enabled - ENABLE_GATEWAY value was '{gateway_env}'")
+
+# Module 3: Risk scoring tool via Lambda target (to be added in Phase 4)
+# if os.environ.get("ENABLE_LAMBDA_TARGET", "false").lower() == "true":
+#     # Lambda Gateway tool will be added in Module 3
+#     pass
+
+# Module 4: Market calendar tool via MCP target (to be added in Phase 5)
+# if os.environ.get("ENABLE_MCP_TARGET", "false").lower() == "true":
+#     # MCP Gateway tool will be added in Module 4
+#     pass
+
+# ============================================================================
+# Agent Configuration
+# ============================================================================
+
+# Update system prompt based on available tools
+has_stock_tool = os.environ.get("ENABLE_GATEWAY", "false").lower() == "true"
+
+system_prompt = f"""
 You are MarketPulse, an AI investment brief assistant for financial advisors.
 
 Your role is to help advisors prepare for client meetings by providing:
-- Current stock information (when tools are available)
+{"- Current stock information using the get_stock_price tool" if has_stock_tool else "- Stock information (when tools are available)"}
 - Risk assessments based on client profiles (when tools are available)
 - Market calendar information (when tools are available)
 
 Always be professional, concise, and focused on actionable insights.
 
-In this initial version, you don't have access to live data tools yet.
-Provide general guidance based on your training data knowledge, and acknowledge
-that you'll have more capabilities as additional modules are enabled.
+{"When providing stock prices, always cite the ticker symbol and mention that data is real-time from Finnhub." if has_stock_tool else "In this initial version, you don't have access to live data tools yet. Provide general guidance based on your training data knowledge."}
 """
+
+# Create the MarketPulse agent
+agent = Agent(
+    model=model,
+    tools=tools,  # Tools added based on enabled modules
+    system_prompt=system_prompt
 )
 
 @app.entrypoint
@@ -59,7 +120,8 @@ def marketpulse_agent(payload):
     Returns the agent's response as a string.
     """
     user_input = payload.get("prompt")
-    print(f"MarketPulse received query: {user_input}")
+    logger.info(f"MarketPulse received query: {user_input}")
+    logger.info(f"Tools available: {len(tools)}")
     
     response = agent(user_input)
     

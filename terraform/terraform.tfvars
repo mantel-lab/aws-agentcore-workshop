@@ -15,8 +15,8 @@ aws_region = "ap-southeast-2" # or us-west-2, eu-west-1, etc.
 # ============================================================================
 
 # Phase 1: Foundation (always false in Phase 1)
-enable_gateway       = false
-enable_http_target   = false
+enable_gateway       = true
+enable_http_target   = true
 enable_lambda_target = false
 enable_mcp_target    = false
 enable_memory        = false
@@ -48,7 +48,7 @@ enable_observability = false
 
 # Finnhub API Key - Get free key at https://finnhub.io
 # Required when enable_http_target = true
-# finnhub_api_key = "your-finnhub-api-key-here"
+finnhub_api_key = ""
 
 # ============================================================================
 # Bedrock Configuration
@@ -61,11 +61,6 @@ bedrock_model_id = "anthropic.claude-3-5-sonnet-20241022-v2:0"
 # Model inference parameters
 model_temperature = 0.7
 model_max_tokens  = 4096
-
-# Agent artifact location (Phase 1 - Required)
-# S3 bucket and key containing the agent runtime artifact
-agent_artifact_bucket = "your-agent-artifact-bucket"
-agent_artifact_key    = "agent/runtime-artifact.zip"
 
 # ============================================================================
 # Tags (Optional but Recommended)

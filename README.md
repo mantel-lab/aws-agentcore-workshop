@@ -69,9 +69,9 @@ cp terraform/terraform.tfvars.example terraform/terraform.tfvars
 # Configure terraform.tfvars with your AWS region and preferences
 # (Edit the file to set project_name, environment, aws_region, etc.)
 
-# For Module 2+: Copy .env and add Finnhub API key  
-# cp .env.example .env
-# (Edit .env to add your FINNHUB_API_KEY)
+# For Module 2+: Add your Finnhub API key to terraform.tfvars
+# finnhub_api_key = "your_key_here"
+# Terraform stores this in Secrets Manager automatically - no manual setup needed
 ```
 
 ### 2. Initialise Terraform
@@ -126,6 +126,7 @@ aws-agentcore-workshop/
 │   ├── build-agent.sh
 │   ├── build-mcp.sh
 │   ├── test-agent.py
+│   ├── test-stock.py
 │   └── destroy.sh
 └── docs/                        # Module documentation
     ├── 00-introduction.md

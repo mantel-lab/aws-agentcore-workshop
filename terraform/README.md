@@ -120,7 +120,10 @@ aws bedrock list-foundation-models --region us-east-1 \
    ```
    This sends a test prompt to verify the agent is responding correctly.
 
-### Phase 2: Gateway + HTTP Target (Coming Next)
+### Phase 2: Gateway + HTTP Target (Module 2)
+
+**Gateway Implementation Note:**  
+The AgentCore Gateway resources use AWS CLI commands via `null_resource` provisioners because AWSCC Terraform provider support for Gateway is still emerging. This workshop-appropriate approach ensures compatibility while AWS provider support matures.
 
 Enable gateway features:
 ```bash
@@ -134,6 +137,21 @@ Then deploy:
 ```bash
 terraform plan
 terraform apply
+```
+
+**What gets created:**
+- AgentCore Gateway (via AWS CLI)
+- S3 bucket for OpenAPI specifications
+- OpenAPI spec for Finnhub stock price API
+- Secrets Manager secret for Finnhub API key
+- Gateway target linking the OpenAPI spec to Gateway
+- IAM permissions for agent to invoke Gateway
+
+**After deployment:**
+```bash
+cd ..
+./scripts/build-agent.sh  # Rebuild agent with Gateway tool
+python3 scripts/test-stock.py  # Test stock price queries
 ```
 
 ## File Structure

@@ -45,6 +45,31 @@ output "agent_endpoint_name" {
 }
 
 # ============================================================================
+# AgentCore Gateway (Module 2+)
+# ============================================================================
+
+output "gateway_id" {
+  description = "ID of the AgentCore Gateway"
+  value       = local.gateway_id
+  sensitive   = true
+}
+
+output "gateway_role_arn" {
+  description = "ARN of the Gateway IAM role"
+  value       = var.enable_gateway ? aws_iam_role.gateway[0].arn : null
+}
+
+output "finnhub_target_configured" {
+  description = "Whether the Finnhub HTTP target is configured"
+  value       = var.enable_http_target
+}
+
+output "openapi_spec_bucket" {
+  description = "S3 bucket containing OpenAPI specifications"
+  value       = var.enable_http_target ? aws_s3_bucket.openapi_specs[0].id : null
+}
+
+# ============================================================================
 # Workshop Progress
 # ============================================================================
 
