@@ -50,7 +50,7 @@ This workshop uses a **single Terraform directory with progressive feature enabl
 | 1 | AgentCore Runtime | _(base deployment)_ | 30 min |
 | 2 | Gateway - HTTP Target | `enable_gateway`, `enable_http_target` | 20 min |
 | 3 | Gateway - Lambda Target | `enable_lambda_target` | 20 min |
-| 4 | Gateway - MCP Target | `enable_mcp_target` | 20 min |
+| 4 | Gateway - MCP Target | `enable_mcp_target` | 25 min |
 | 5 | Memory | `enable_memory` | 25 min |
 | 6 | Identity (OAuth 2.0) | `enable_identity` | 25 min |
 | 7 | Observability | `enable_observability` | 30 min |
@@ -127,6 +127,8 @@ aws-agentcore-workshop/
 │   ├── build-mcp.sh
 │   ├── test-agent.py
 │   ├── test-stock.py
+│   ├── test-risk.py
+│   ├── test-calendar.py
 │   └── destroy.sh
 └── docs/                        # Module documentation
     ├── 00-introduction.md

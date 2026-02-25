@@ -34,11 +34,11 @@ flowchart TB
     Lambda -->|Score| Gateway
     Gateway -->|Response| Agent
     Agent -->|Brief| User
-    
+
     classDef runtime fill:#E8EAF6,stroke:#7986CB,color:#3F51B5
     classDef gateway fill:#F3E5F5,stroke:#BA68C8,color:#8E24AA
     classDef compute fill:#E0F2F1,stroke:#4DB6AC,color:#00897B
-    
+
     class Agent runtime
     class Gateway gateway
     class Lambda compute
@@ -47,352 +47,341 @@ flowchart TB
 ## The Risk Scorer Lambda
 
 The Lambda function takes:
-- **Stock ticker** - The stock being considered
-- **Client risk profile** - Conservative, Moderate, or Aggressive
+- **Stock ticker** - The stock being considered (e.g., AAPL, TSLA)
+- **Client risk profile** - `conservative`, `moderate`, or `aggressive`
 
 And returns:
-- **Suitability label** - Clear match, Proceed with caution, Not suitable
-- **Reasoning** - Why this assessment was made
+- **Suitability label** - `clear_match`, `proceed_with_caution`, or `not_suitable`
+- **Reasoning** - Plain-language explanation for the advisor
+- **Volatility assessed** - The volatility category used in the decision
 
 **Example logic:**
 
 ```
-Conservative investor + High volatility stock → "Proceed with caution"
-Aggressive investor + Growth stock → "Clear match"
-Conservative investor + Crypto → "Not suitable"
+Conservative investor + Low volatility stock  → "clear_match"
+Conservative investor + High volatility stock → "not_suitable"
+Aggressive investor + High volatility stock   → "clear_match"
+Moderate investor + Medium volatility stock   → "clear_match"
 ```
 
 ## Step 1: Review the Lambda Code
 
-The Lambda code is provided in `lambda/risk-scorer/app.py`:
+The Lambda is in `lambda/scorer.py`. Open it and review the key sections:
 
 ```python
-import json
+# Volatility classification per ticker
+VOLATILITY_MAP = {
+    "AAPL": "low",
+    "MSFT": "low",
+    "GOOGL": "medium",
+    "TSLA": "high",
+    "NVDA": "high",
+    # ...
+}
 
-def lambda_handler(event, context):
-    """
-    Assess stock suitability against client risk profile.
-    
-    Input:
-        ticker: Stock ticker symbol
-        risk_profile: "conservative", "moderate", or "aggressive"
-        
-    Output:
-        suitability: "clear_match", "proceed_with_caution", "not_suitable"
-        reasoning: Explanation of the assessment
-    """
-    
-    ticker = event.get('ticker', '').upper()
-    risk_profile = event.get('risk_profile', '').lower()
-    
-    # Stock volatility mapping (simplified for workshop)
-    volatility_map = {
-        'AAPL': 'low',
-        'MSFT': 'low',
-        'GOOGL': 'medium',
-        'AMZN': 'medium',
-        'TSLA': 'high',
-        'NVDA': 'high'
-    }
-    
-    volatility = volatility_map.get(ticker, 'medium')
-    
-    # Suitability matrix
-    suitability_matrix = {
-        ('conservative', 'low'): ('clear_match', 'Established company with stable returns'),
-        ('conservative', 'medium'): ('proceed_with_caution', 'Moderate volatility may not align with conservative goals'),
-        ('conservative', 'high'): ('not_suitable', 'High volatility inappropriate for conservative portfolio'),
-        ('moderate', 'low'): ('clear_match', 'Stable investment suitable for balanced portfolio'),
-        ('moderate', 'medium'): ('clear_match', 'Good fit for moderate risk tolerance'),
-        ('moderate', 'high'): ('proceed_with_caution', 'Higher risk than typical moderate allocation'),
-        ('aggressive', 'low'): ('clear_match', 'Stable foundation with growth potential'),
-        ('aggressive', 'medium'): ('clear_match', 'Strong match for growth-focused portfolio'),
-        ('aggressive', 'high'): ('clear_match', 'High growth potential appropriate for risk tolerance')
-    }
-    
-    suitability, reasoning = suitability_matrix.get(
-        (risk_profile, volatility),
-        ('proceed_with_caution', 'Unable to determine suitability')
-    )
-    
+# Suitability matrix: (risk_profile, volatility) -> (suitability, reasoning)
+SUITABILITY_MATRIX = {
+    ("conservative", "low"):    ("clear_match",          "Stable earnings, low volatility..."),
+    ("conservative", "medium"): ("proceed_with_caution", "Moderate volatility may exceed..."),
+    ("conservative", "high"):   ("not_suitable",         "High volatility inappropriate..."),
+    # ... all nine combinations defined
+}
+```
+
+The handler receives arguments directly from AgentCore Gateway and returns the result in the response body:
+
+```python
+def handler(event: dict, context) -> dict:
+    ticker       = event.get("ticker", "").strip().upper()
+    risk_profile = event.get("risk_profile", "").strip().lower()
+    ...
     return {
-        'statusCode': 200,
-        'body': json.dumps({
-            'ticker': ticker,
-            'risk_profile': risk_profile,
-            'suitability': suitability,
-            'reasoning': reasoning,
-            'volatility_assessed': volatility
-        })
+        "statusCode": 200,
+        "body": json.dumps(result),
     }
 ```
 
 **Key points:**
 
-1. **Simplified logic** - Real systems would use historical volatility data
-2. **Matrix-based** - Easy to understand and audit
-3. **FSI-relevant** - Risk assessment is core to advisory workflows
+1. **Simplified logic** - A real system would use historical volatility data
+2. **Matrix-based** - Easy to understand, audit, and extend
+3. **FSI-relevant** - Risk assessment is central to advisory workflows
 
-## Step 2: Update Agent Code
+## Step 2: Review the Agent Tool Definition
 
-Add the risk scoring tool to `agent/app.py`:
+Open `agent/app.py`. The risk scoring tool is already defined and wired to the Gateway:
 
 ```python
-@agent.tool
 def assess_client_suitability(ticker: str, risk_profile: str) -> dict:
     """
-    Assess whether a stock is suitable for a client's risk profile.
-    
+    Assesses whether a stock is suitable for a client's risk profile.
+
+    This tool is routed through AgentCore Gateway to the risk scorer Lambda.
+
     Args:
-        ticker: Stock ticker symbol
-        risk_profile: Client's risk profile ("conservative", "moderate", "aggressive")
-    
+        ticker:       Stock ticker symbol (e.g., AAPL, TSLA)
+        risk_profile: Client risk profile - conservative, moderate, or aggressive
+
     Returns:
-        dict: Suitability assessment with reasoning
+        dict: Suitability label and plain-language reasoning for the advisor.
     """
+    # Implementation handled by AgentCore Gateway -> Lambda
     pass
+
+if os.environ.get("ENABLE_LAMBDA_TARGET", "false").lower() == "true":
+    tools.append(assess_client_suitability)
 ```
 
-Update agent instructions:
-
-```python
-agent = Agent(
-    name="MarketPulse",
-    model="anthropic.claude-sonnet-4-5-20250929-v1:0",
-    instructions="""
-    You are MarketPulse, an AI investment brief assistant for financial advisors.
-    
-    Available tools:
-    - get_stock_price: Real-time stock data
-    - assess_client_suitability: Risk profile assessment
-    
-    When asked about stock suitability for a client, always:
-    1. Get current price with get_stock_price
-    2. Assess suitability with assess_client_suitability
-    3. Present both pieces of information clearly
-    
-    Risk profiles are: conservative, moderate, aggressive
-    """
-)
-```
+The function body is empty because AgentCore intercepts the call and routes it to the Gateway Lambda target automatically based on the function name matching the tool schema defined in Terraform.
 
 ## Step 3: Configure Terraform
 
-Edit `terraform/terraform.tfvars`:
+Edit `terraform/terraform.tfvars` to enable the Lambda target:
 
 ```hcl
-# Feature Flags (Add Lambda target)
-enable_runtime = true
-enable_gateway = true
-enable_http_target = true
+enable_gateway       = true
+enable_http_target   = true
 enable_lambda_target = true
-enable_mcp_target = false
-enable_memory = false
-enable_identity = false
-enable_observability = false
 ```
 
-## Step 4: Rebuild and Deploy
+## Step 4: Deploy
 
-Rebuild the agent:
-
-```bash
-./scripts/build-agent.sh
-```
-
-Deploy Lambda and Gateway configuration:
+Deploy the Lambda function and register the Gateway target:
 
 ```bash
 cd terraform
 terraform apply
 ```
 
-**What Terraform creates:**
+Terraform will create:
 
-- Lambda function with risk scoring logic
-- Lambda execution role with CloudWatch permissions
-- Lambda target in Gateway
-- Tool association linking `assess_client_suitability` to Lambda
+| Resource | Description |
+|----------|-------------|
+| `aws_lambda_function.risk_scorer` | The risk scoring function |
+| `aws_iam_role.risk_scorer` | Lambda execution role |
+| `aws_cloudwatch_log_group.risk_scorer` | Log group for execution logs |
+| `aws_lambda_permission.allow_gateway` | Allows Gateway to invoke Lambda |
+| `aws_iam_role_policy.gateway_lambda_access` | Grants Gateway role Lambda invoke permission |
+| `null_resource.lambda_gateway_target` | Registers Lambda as a Gateway target via AWS CLI |
 
 **Expected output:**
 
 ```
-Apply complete! Resources: 4 added, 1 changed, 0 destroyed.
+Apply complete! Resources: 6 added, 1 changed, 0 destroyed.
 
 Outputs:
 
-lambda_function_arn = "arn:aws:lambda:ap-southeast-2:123456789012:function:marketpulse-risk-scorer"
-lambda_target_id = "tgt-lambda-risk-123"
+lambda_function_arn  = "arn:aws:lambda:ap-southeast-2:123456789012:function:marketpulse-workshop-dev-risk-scorer"
+lambda_function_name = "marketpulse-workshop-dev-risk-scorer"
+lambda_log_group     = "/aws/lambda/marketpulse-workshop-dev-risk-scorer"
 ```
+
+After `terraform apply` completes, rebuild the agent container so it picks up the updated environment variable:
+
+```bash
+./scripts/build-agent.sh
+```
+
+Wait 2-3 minutes for the AgentCore Runtime to restart with the new container image.
 
 ## Step 5: Test Risk Assessments
 
-Test with a suitability query:
+Run the included test script:
 
 ```bash
-python scripts/test-agent.py "I'm meeting with Sarah Chen, a conservative investor. Is Apple suitable for her?"
+python scripts/test-risk.py
 ```
 
-**Expected response:**
+The script runs four test scenarios covering different investor profiles:
+
+**Conservative investor + Apple (low volatility):**
 
 ```
+Query: I'm meeting with Sarah Chen, a conservative investor. Is Apple suitable?
+
 Agent Response:
-===============
-
-Investment Brief for Sarah Chen (Conservative Profile)
+Sarah Chen - Conservative Investor
 
 Stock: Apple Inc. (AAPL)
 Current Price: $184.25
-Day Range: $182.50 - $185.10
 
-Suitability Assessment: Clear Match ✓
+Suitability: Clear Match
 
-Apple is an established company with stable returns, making it suitable 
-for Sarah's conservative investment profile. The stock shows low volatility 
-and has a track record of consistent performance.
+Apple is an established company with stable earnings and low price volatility,
+well aligned with Sarah's capital preservation goals.
 
-Recommendation: Appropriate for inclusion in Sarah's portfolio.
+Recommendation: Appropriate for her portfolio.
 ```
 
-Test with a mismatch:
-
-```bash
-python scripts/test-agent.py "Is Tesla suitable for a conservative investor?"
-```
-
-**Expected response:**
+**Conservative investor + Tesla (high volatility):**
 
 ```
+Query: Is Tesla suitable for a conservative investor?
+
 Agent Response:
-===============
+Tesla (TSLA) Suitability Assessment - Conservative Profile
 
-Stock: Tesla Inc. (TSLA)
-Current Price: $198.50
+Suitability: Not Suitable
 
-Suitability Assessment: Not Suitable ✗
-
-Tesla exhibits high volatility which is inappropriate for a conservative 
-portfolio. The stock's price movements are significantly larger than 
-typical for conservative holdings.
-
-Recommendation: Consider more stable alternatives like AAPL or MSFT.
+Tesla's high price volatility is inappropriate for a conservative portfolio
+focused on capital preservation. Consider stable alternatives like AAPL or MSFT.
 ```
 
-## Step 6: View Lambda Logs
-
-Check Lambda execution logs:
+You can also run ad-hoc queries directly:
 
 ```bash
-aws logs tail /aws/lambda/marketpulse-risk-scorer --follow
+python scripts/test-agent.py "Is NVIDIA suitable for a moderate risk investor?"
 ```
 
-**What to look for:**
+## Step 6: View Lambda Execution Logs
+
+Check CloudWatch Logs to verify the Lambda is being invoked:
+
+```bash
+aws logs tail /aws/lambda/marketpulse-workshop-dev-risk-scorer --follow
+```
+
+Look for log entries showing the assessment:
 
 ```
 START RequestId: abc-123
-[INFO] Assessing ticker=AAPL, risk_profile=conservative
-[INFO] Volatility assessed: low
-[INFO] Suitability: clear_match
+[INFO] Risk scorer invoked with event: {"ticker": "AAPL", "risk_profile": "conservative"}
+[INFO] Ticker=AAPL volatility=low risk_profile=conservative
+[INFO] Assessment result: {"ticker": "AAPL", "suitability": "clear_match", ...}
 END RequestId: abc-123
-REPORT Duration: 45ms Billed Duration: 46ms Memory: 128MB Max Memory: 52MB
+REPORT Duration: 12ms Billed Duration: 13ms Memory: 128MB Max Memory: 48MB
 ```
+
+**In the AWS Console:** Lambda → Functions → `marketpulse-workshop-dev-risk-scorer` → Monitor → View CloudWatch Logs.
 
 ## HTTP Target vs Lambda Target: When to Use Each
 
 | Factor | HTTP Target | Lambda Target |
 |--------|-------------|---------------|
-| **Data source** | External API | Internal logic/data |
-| **Cost model** | Per API call | Per execution time |
-| **Latency** | Network + processing | Execution only |
+| **Data source** | External API | Internal logic / private data |
+| **Cost model** | Per API call | Per execution (ms) |
 | **Authentication** | API keys, OAuth | IAM |
 | **VPC access** | No | Yes |
-| **Auditability** | External logs | CloudWatch |
-| **Use cases** | Market data, public APIs | Calculations, DB queries |
+| **Audit trail** | External service logs | CloudWatch |
+| **Versioning** | API versioning | Lambda versions/aliases |
+| **Use cases** | Market data, public APIs | Scoring, DB queries, custom logic |
 
-**Choose HTTP when:**
-- External service provides the data
-- Service is already API-based
-- No custom processing needed
+**Choose HTTP when** the data lives in an external system your team doesn't control.
 
-**Choose Lambda when:**
-- Logic is internal to your organisation
-- Need VPC access for databases
-- Custom calculations required
-- Want full control over implementation
+**Choose Lambda when** the logic or data is internal, needs auditing, or requires VPC access.
+
+## How the Tool Schema Works
+
+The Lambda target registration (in `lambda.tf`) includes an inline tool schema:
+
+```json
+{
+  "name": "assess_client_suitability",
+  "description": "Assesses whether a stock is suitable...",
+  "inputSchema": {
+    "json": {
+      "type": "object",
+      "properties": {
+        "ticker":       { "type": "string" },
+        "risk_profile": { "type": "string", "enum": [...] }
+      },
+      "required": ["ticker", "risk_profile"]
+    }
+  }
+}
+```
+
+When the agent calls `assess_client_suitability`, AgentCore Gateway:
+1. Matches the function name against registered target tool schemas
+2. Routes the call to the Lambda ARN registered for that tool
+3. Passes the arguments as the Lambda `event` payload
+4. Returns the Lambda response to the agent
 
 ## Verification Checklist
 
-- [ ] Lambda function deployed successfully
-- [ ] Agent rebuilt with risk assessment tool
-- [ ] Terraform apply completed
-- [ ] `lambda_target_id` output received
-- [ ] Test queries return suitability assessments
-- [ ] Lambda logs show executions
+- [ ] `terraform apply` completed with 6 new resources
+- [ ] `lambda_function_arn` output is present
+- [ ] Agent container rebuilt with `./scripts/build-agent.sh`
+- [ ] `python scripts/test-risk.py` passes all 4 test scenarios
+- [ ] CloudWatch Logs show Lambda invocations
 
 ## Common Issues
 
-### Lambda timeout errors
+### Lambda target not being called
 
-**Cause:** Default timeout too short for processing.
+**Symptom:** Agent provides a generic response without invoking the tool.
+
+**Cause:** Either the Gateway target was not registered, or the environment variable is not set.
+
+**Check:**
+```bash
+# Verify the Lambda target was registered
+cd terraform && terraform output lambda_target_configured
+
+# Check agent environment variables
+aws bedrock-agentcore list-agent-runtimes --region ap-southeast-2 \
+  | jq '.agentRuntimes[] | select(.agentRuntimeName | contains("marketpulse"))'
+```
+
+### Lambda returns 400 error
+
+**Cause:** AgentCore Gateway may be passing arguments in an unexpected format.
+
+**Solution:** Check Lambda logs for the raw event payload and compare against the expected schema.
+
+### Lambda timeout
+
+**Cause:** Default timeout is sufficient for this scorer but may be low for complex logic.
 
 **Solution:** Increase timeout in `terraform/lambda.tf`:
 ```hcl
-timeout = 30  # seconds
+timeout = 30  # seconds (current default)
 ```
 
-### "Tool not found" for assess_client_suitability
+### "No credentials" error in Lambda logs
 
-**Cause:** Tool association not created.
+**Cause:** Lambda IAM role lacks required permissions.
 
-**Solution:**
+**Solution:** Verify the `aws_iam_role_policy_attachment.risk_scorer_basic` was applied:
 ```bash
-terraform taint aws_agentcore_tool_association.risk_scorer
-terraform apply
-```
-
-### Lambda returns 500 error
-
-**Cause:** Code error or missing dependencies.
-
-**Solution:** Check Lambda logs:
-```bash
-aws logs tail /aws/lambda/marketpulse-risk-scorer --since 5m
+cd terraform && terraform state show 'aws_iam_role_policy_attachment.risk_scorer_basic[0]'
 ```
 
 ## FSI Relevance: Lambda for Compliance
 
-In financial services, Lambda targets are critical for:
+In financial services, Lambda targets are important because:
 
-1. **Proprietary Scoring** - Risk models are intellectual property
-2. **Regulated Calculations** - Must use audited, version-controlled code
-3. **Data Sovereignty** - Client data stays in your AWS account
-4. **Audit Trail** - Every execution logged in CloudWatch
-5. **Version Control** - Lambda versions enable rollback
+1. **Proprietary scoring** - Risk models are intellectual property that stay in your account
+2. **Audit trail** - Every invocation is logged in CloudWatch with request/response
+3. **Versioning** - Lambda versions and aliases support controlled rollout and rollback
+4. **Data sovereignty** - Client data never leaves your AWS account
+5. **Regulated calculations** - Code is version-controlled and auditable
 
-This pattern is common for:
-- Credit scoring models
-- Fraud detection algorithms
-- Portfolio optimisation
-- Regulatory reporting calculations
+This pattern is commonly used for:
+
+- Portfolio suitability scoring
+- Credit risk assessments
+- Regulatory capital calculations
+- Fraud detection signals
 
 ## Discussion Questions
 
-1. **What calculations does your team currently perform that could be Lambda functions?**
-2. **How do you version and audit business logic today?**
-3. **What benefits do you see from separating calculation logic from agent prompts?**
+1. What business logic in your team could be deployed as a Lambda Gateway target?
+2. How does version-controlled Lambda code compare to AI prompts for regulatory auditability?
+3. What data in your organisation requires VPC access that would benefit from Lambda targets?
 
 ## Next Steps
 
-You've added internal business logic via Lambda. The agent can now retrieve prices and assess suitability.
+The agent can now retrieve live prices and assess suitability against client risk profiles.
 
-In [Module 4](04-gateway-mcp.md), you'll deploy an MCP server to provide market calendar data.
+In [Module 4](04-gateway-mcp.md), you'll deploy an MCP server to provide market holiday calendar data.
 
 ---
 
 **Key Takeaways:**
 
-- Lambda targets enable internal business logic as agent tools
-- Gateway handles Lambda invocation and error handling
-- Lambda provides full VPC access for private data sources
-- Separation of concerns: agent orchestrates, Lambda calculates
-- CloudWatch provides complete execution audit trail
+- Lambda targets route agent tool calls to internal business logic
+- AgentCore Gateway handles invocation, retries, and error handling
+- Tool schemas defined in Terraform describe what arguments each tool accepts
+- CloudWatch provides a complete audit trail of every Lambda invocation
+- Lambda is preferred over HTTP targets when logic or data is internal to your organisation

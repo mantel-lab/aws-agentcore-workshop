@@ -194,7 +194,7 @@ resource "aws_secretsmanager_secret" "finnhub_api_key" {
 
   name                    = "${local.name_prefix}-finnhub-api-key"
   description             = "Finnhub API key for stock price data"
-  recovery_window_in_days = 0  # Force immediate deletion on destroy
+  recovery_window_in_days = 0 # Force immediate deletion on destroy
 
   tags = local.common_tags
 }

@@ -9,17 +9,20 @@ locals {
   name_prefix = "${var.project_name}-${var.environment}"
 
   # Resource names
-  # Note: agent_runtime_name must match pattern [a-zA-Z][a-zA-Z0-9_]{0,47} (no hyphens)
+  # Note: agent_runtime_name and endpoint names must match pattern [a-zA-Z][a-zA-Z0-9_]{0,47}
+  # AgentCore runtime names do not allow hyphens
   agent_name              = replace("${local.name_prefix}_agent", "-", "_")
   lambda_function_name    = "${local.name_prefix}-risk-scorer"
-  mcp_server_name         = "${local.name_prefix}-mcp-server"
+  mcp_server_name         = "${local.name_prefix}-mcp-server" # used for IAM roles, log groups (hyphens OK)
   memory_namespace        = "${local.name_prefix}-memory"
   ecr_repository_name     = "${local.name_prefix}-agent"
   ecr_mcp_repository_name = "${local.name_prefix}-mcp-server"
 
-  # Runtime endpoint name (must use underscores, not hyphens)
+  # Runtime and endpoint names must use underscores (not hyphens)
   # AWS validation: ^[a-zA-Z][a-zA-Z0-9_]{0,47}$
-  runtime_endpoint_name = replace("${local.name_prefix}_agent_endpoint", "-", "_")
+  runtime_endpoint_name   = replace("${local.name_prefix}_agent_endpoint", "-", "_")
+  mcp_server_runtime_name = replace("${local.name_prefix}_mcp_server", "-", "_")
+  mcp_endpoint_name       = replace("${local.name_prefix}_mcp_endpoint", "-", "_")
 
   # ============================================================================
   # ARNs and Account Information

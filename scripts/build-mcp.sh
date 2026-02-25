@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# AWS AgentCore Workshop: MarketPulse - Agent Build Script
-# This script builds the MarketPulse agent Docker image and pushes it to ECR.
+# AWS AgentCore Workshop: MarketPulse - MCP Server Build Script
+# Builds the Market Calendar MCP server Docker image and pushes it to ECR.
 
 # Colour codes for output
 RED='\033[0;31m'
@@ -13,21 +13,20 @@ NC='\033[0m' # No Colour
 # Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-AGENT_DIR="${PROJECT_ROOT}/agent"
+MCP_DIR="${PROJECT_ROOT}/mcp-server"
 TERRAFORM_DIR="${PROJECT_ROOT}/terraform"
 
-echo -e "${GREEN}Building MarketPulse Agent Container${NC}"
+echo -e "${GREEN}Building MarketPulse MCP Server Container${NC}"
 echo ""
 
-# Check if agent directory exists
-if [[ ! -d "${AGENT_DIR}" ]]; then
-    echo -e "${RED}Error: Agent directory not found at ${AGENT_DIR}${NC}"
+# Check required directories and files
+if [[ ! -d "${MCP_DIR}" ]]; then
+    echo -e "${RED}Error: MCP server directory not found at ${MCP_DIR}${NC}"
     exit 1
 fi
 
-# Check if Dockerfile exists
-if [[ ! -f "${AGENT_DIR}/Dockerfile" ]]; then
-    echo -e "${RED}Error: Dockerfile not found in ${AGENT_DIR}${NC}"
+if [[ ! -f "${MCP_DIR}/Dockerfile" ]]; then
+    echo -e "${RED}Error: Dockerfile not found in ${MCP_DIR}${NC}"
     exit 1
 fi
 
@@ -36,24 +35,24 @@ echo -e "${YELLOW}Getting ECR repository details...${NC}"
 REGION="${AWS_REGION:-${1:-ap-southeast-2}}"
 
 if [[ -n "${ECR_REPO_URL:-}" ]]; then
-    : # use env var as-is
+    ECR_MCP_REPO_URL="${ECR_REPO_URL}"
 else
     # Fallback for manual invocation outside of terraform apply
     cd "${TERRAFORM_DIR}"
-    ECR_REPO_URL=$(terraform output -raw ecr_repository_url 2>/dev/null)
+    ECR_MCP_REPO_URL=$(terraform output -raw ecr_mcp_repository_url 2>/dev/null)
 fi
 
-if [[ -z "${ECR_REPO_URL}" ]]; then
+if [[ -z "${ECR_MCP_REPO_URL}" ]]; then
     echo -e "${RED}Error: ECR repository URL not found.${NC}"
-    echo "Run from terraform (or run 'terraform apply' first and then re-run this script)"
+    echo "Run from terraform (or run 'terraform apply' with enable_mcp_target=true first)"
     exit 1
 fi
 
 # Derive repository name from URL (everything after the last /)
-REPOSITORY_NAME="${ECR_REPO_URL##*/}"
+REPOSITORY_NAME="${ECR_MCP_REPO_URL##*/}"
 echo "Region:          ${REGION}"
 echo "Repository Name: ${REPOSITORY_NAME}"
-echo "Repository URL:  ${ECR_REPO_URL}"
+echo "Repository URL:  ${ECR_MCP_REPO_URL}"
 echo ""
 
 # Get AWS account ID
@@ -78,8 +77,8 @@ echo -e "${GREEN}Docker authenticated to ECR${NC}"
 echo ""
 
 # Build Docker image
-echo -e "${YELLOW}Building Docker image...${NC}"
-cd "${AGENT_DIR}"
+echo -e "${YELLOW}Building MCP server Docker image...${NC}"
+cd "${MCP_DIR}"
 docker build --platform linux/arm64 -t "${REPOSITORY_NAME}:latest" .
 if [[ $? -ne 0 ]]; then
     echo -e "${RED}Error: Docker build failed${NC}"
@@ -90,13 +89,13 @@ echo ""
 
 # Tag image for ECR
 echo -e "${YELLOW}Tagging image for ECR...${NC}"
-docker tag "${REPOSITORY_NAME}:latest" "${ECR_REPO_URL}:latest"
-echo -e "${GREEN}Image tagged: ${ECR_REPO_URL}:latest${NC}"
+docker tag "${REPOSITORY_NAME}:latest" "${ECR_MCP_REPO_URL}:latest"
+echo -e "${GREEN}Image tagged: ${ECR_MCP_REPO_URL}:latest${NC}"
 echo ""
 
 # Push image to ECR
 echo -e "${YELLOW}Pushing image to ECR...${NC}"
-docker push "${ECR_REPO_URL}:latest"
+docker push "${ECR_MCP_REPO_URL}:latest"
 if [[ $? -ne 0 ]]; then
     echo -e "${RED}Error: Failed to push image to ECR${NC}"
     exit 1
@@ -104,17 +103,17 @@ fi
 echo -e "${GREEN}Image pushed successfully${NC}"
 echo ""
 
-# Get image digest
+# Get image digest for confirmation
 IMAGE_DIGEST=$(aws ecr describe-images \
     --repository-name "${REPOSITORY_NAME}" \
     --region "${REGION}" \
     --query 'imageDetails[0].imageDigest' \
-    --output text)
+    --output text 2>/dev/null || echo "unavailable")
 
 echo -e "${GREEN}=== Build Complete ===${NC}"
-echo "Image URI: ${ECR_REPO_URL}:latest"
+echo "Image URI: ${ECR_MCP_REPO_URL}:latest"
 echo "Image Digest: ${IMAGE_DIGEST}"
 echo ""
 echo "Next steps:"
-echo "1. Run 'terraform apply' to deploy the agent runtime"
-echo "2. Test the agent with scripts/test-agent.py"
+echo "1. Run 'terraform apply' if not already done (Runtime will pull the new image)"
+echo "2. Test the agent with scripts/test-calendar.py"

@@ -59,6 +59,10 @@ resource "null_resource" "build_agent_image" {
   provisioner "local-exec" {
     command     = "${path.module}/../scripts/build-agent.sh"
     working_dir = path.module
+    environment = {
+      ECR_REPO_URL = aws_ecr_repository.agent.repository_url
+      AWS_REGION   = local.region
+    }
   }
 
   depends_on = [

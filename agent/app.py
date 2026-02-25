@@ -72,15 +72,56 @@ if gateway_env.lower() == "true":
 else:
     logger.info(f"Gateway NOT enabled - ENABLE_GATEWAY value was '{gateway_env}'")
 
-# Module 3: Risk scoring tool via Lambda target (to be added in Phase 4)
-# if os.environ.get("ENABLE_LAMBDA_TARGET", "false").lower() == "true":
-#     # Lambda Gateway tool will be added in Module 3
-#     pass
+# Module 3: Risk scoring tool via Lambda Gateway target
+# When ENABLE_LAMBDA_TARGET is set, AgentCore routes assess_client_suitability
+# calls through the Gateway to the risk scorer Lambda function.
 
-# Module 4: Market calendar tool via MCP target (to be added in Phase 5)
-# if os.environ.get("ENABLE_MCP_TARGET", "false").lower() == "true":
-#     # MCP Gateway tool will be added in Module 4
-#     pass
+def assess_client_suitability(ticker: str, risk_profile: str) -> dict:
+    """
+    Assesses whether a stock is suitable for a client's risk profile.
+
+    This tool is routed through AgentCore Gateway to the risk scorer Lambda.
+
+    Args:
+        ticker:       Stock ticker symbol (e.g., AAPL, TSLA)
+        risk_profile: Client risk profile - conservative, moderate, or aggressive
+
+    Returns:
+        dict: Suitability label (clear_match, proceed_with_caution, not_suitable)
+              and plain-language reasoning for the advisor.
+    """
+    # Implementation handled by AgentCore Gateway -> Lambda
+    pass
+
+if os.environ.get("ENABLE_LAMBDA_TARGET", "false").lower() == "true":
+    logger.info("Lambda target enabled - risk scoring tool available")
+    tools.append(assess_client_suitability)
+
+# Module 4: Market calendar tool via MCP Gateway target
+# When ENABLE_MCP_TARGET is set, AgentCore routes check_market_holidays
+# calls through the Gateway to the Market Calendar MCP server.
+
+def check_market_holidays(country_code: str = "AU", days_ahead: int = 7) -> dict:
+    """
+    Check for public holidays that affect market trading in the next N days.
+
+    This tool is routed through AgentCore Gateway to the Market Calendar MCP server,
+    which wraps the Nager.Date public holidays API.
+
+    Args:
+        country_code: ISO 3166-1 alpha-2 country code (e.g. AU, US, GB).
+                      Defaults to AU for Australian markets.
+        days_ahead:   Number of calendar days to look ahead. Defaults to 7.
+
+    Returns:
+        dict: Upcoming holidays with dates, names, and trading impact summary.
+    """
+    # Implementation handled by AgentCore Gateway -> MCP Server
+    pass
+
+if os.environ.get("ENABLE_MCP_TARGET", "false").lower() == "true":
+    logger.info("MCP target enabled - market calendar tool available")
+    tools.append(check_market_holidays)
 
 # ============================================================================
 # Agent Configuration
@@ -88,16 +129,23 @@ else:
 
 # Update system prompt based on available tools
 has_stock_tool = os.environ.get("ENABLE_GATEWAY", "false").lower() == "true"
+has_lambda_tool = os.environ.get("ENABLE_LAMBDA_TARGET", "false").lower() == "true"
+has_mcp_tool = os.environ.get("ENABLE_MCP_TARGET", "false").lower() == "true"
 
 system_prompt = f"""
 You are MarketPulse, an AI investment brief assistant for financial advisors.
 
 Your role is to help advisors prepare for client meetings by providing:
 {"- Current stock information using the get_stock_price tool" if has_stock_tool else "- Stock information (when tools are available)"}
-- Risk assessments based on client profiles (when tools are available)
-- Market calendar information (when tools are available)
+{"- Risk assessments using the assess_client_suitability tool" if has_lambda_tool else "- Risk assessments (when tools are available)"}
+{"- Market calendar information using the check_market_holidays tool" if has_mcp_tool else "- Market calendar information (when tools are available)"}
+
+{"When helping with suitability queries, always retrieve the current stock price first, then assess suitability. Present both together as a concise brief." if has_lambda_tool else ""}
+
+{"When discussing trade timing, check for upcoming market holidays. Alert the advisor to any closures that could affect execution." if has_mcp_tool else ""}
 
 Always be professional, concise, and focused on actionable insights.
+Risk profiles are: conservative, moderate, or aggressive.
 
 {"When providing stock prices, always cite the ticker symbol and mention that data is real-time from Finnhub." if has_stock_tool else "In this initial version, you don't have access to live data tools yet. Provide general guidance based on your training data knowledge."}
 """

@@ -1,207 +1,157 @@
 # Module 4: Deploy Market Calendar MCP Server as Gateway Target
 
-**Duration:** 20 minutes  
+**Duration:** 25 minutes  
 **Prerequisites:** Completed [Module 3](03-gateway-lambda.md)
 
 ## Learning Objectives
 
 By the end of this module, you will:
 
-1. Understand what MCP servers are and when to use them
-2. Deploy an MCP server to AgentCore Runtime
-3. Register the MCP server as a Gateway target
+1. Understand what MCP servers are and when to use them over HTTP or Lambda targets
+2. Deploy an MCP server to AgentCore Runtime using FastMCP
+3. Register the MCP server as a Gateway MCP_SERVER target
 4. Query the agent for market holiday information
 
-## What is an MCP Server?
+## What is MCP?
 
-**MCP (Model Context Protocol)** is a standard for exposing tools and resources to AI agents. An MCP server:
+**Model Context Protocol (MCP)** is an open standard for exposing tools and resources to AI agents. An MCP server:
 
-- Provides structured tools with defined schemas
-- Can offer resources (documents, data feeds)
-- Uses a standard protocol for discovery and invocation
-- Can be hosted anywhere agents can reach
+- Advertises tools with structured schemas that agents can discover
+- Handles the MCP protocol negotiation automatically
+- Can serve multiple tools from a single deployment
+- Supports both request/response and streaming interactions
 
-**Key benefits:**
+**Key difference from HTTP and Lambda targets:**
 
-- **Reusability** - One MCP server can serve multiple agents
-- **Standard interface** - Any MCP-compatible agent can use it
-- **Encapsulation** - Business logic stays separate from agent code
+| Feature | HTTP Target | Lambda Target | MCP Target |
+|---------|------------|--------------|------------|
+| Protocol | REST | AWS SDK | MCP (JSON-RPC) |
+| Tool discovery | Manual (OpenAPI) | Manual (inline schema) | Automatic via `tools/list` |
+| Multiple tools | One per target | One per target | Many per server |
+| Reusability | External service | AWS account | Hosted in Runtime |
+
+**When to use MCP:**
+
+- You have multiple related tools that belong together (e.g., several calendar operations)
+- You want AgentCore Gateway to auto-discover tool schemas rather than defining them manually
+- You are building a reusable service that multiple agents will share
 
 ## Architecture: Module 4
 
 ```mermaid
 flowchart TB
-    User[Workshop Engineer] -->|Query| Agent[MarketPulse Agent]
+    User[Workshop Engineer] -->|Query| Agent[MarketPulse Agent<br>AgentCore Runtime]
     Agent -->|Tool Calls| Gateway[AgentCore Gateway]
-    Gateway -->|HTTP| Finnhub[Finnhub API]
-    Gateway -->|Invoke| Lambda[Risk Scorer]
-    Gateway -->|MCP Protocol| MCP[Market Calendar MCP]
-    MCP -->|API| Nager[Nager.Date API]
-    
-    subgraph "AgentCore Runtime"
-        Agent
-        MCP
-    end
-    
+    Gateway -->|HTTP + API Key| Finnhub[Finnhub API]
+    Gateway -->|invoke Lambda| Lambda[Risk Scorer Lambda]
+    Gateway -->|MCP protocol<br>IAM auth| MCP[Market Calendar MCP Server<br>AgentCore Runtime]
+    MCP -->|HTTPS| Nager[Nager.Date API<br>public holidays]
+
     classDef runtime fill:#E8EAF6,stroke:#7986CB,color:#3F51B5
     classDef gateway fill:#F3E5F5,stroke:#BA68C8,color:#8E24AA
-    
+    classDef external fill:#FFF9C4,stroke:#FDD835,color:#F9A825
+
     class Agent,MCP runtime
     class Gateway gateway
+    class Finnhub,Nager,Lambda external
 ```
 
-**Key insight:** The MCP server runs in AgentCore Runtime, just like the agent. This demonstrates Runtime's flexibility - it can host both agents and the services they depend on.
+**Key point:** The MCP server runs in a second AgentCore Runtime. Both the agent and the MCP server are containerised and hosted by AgentCore, but they are separate runtimes with separate IAM roles.
 
-## The Market Calendar MCP Server
+## MCP Transport: streamable-http
 
-The MCP server wraps the **Nager.Date** public holidays API to provide:
+AgentCore Runtime requires MCP servers to use `streamable-http` transport. The container must listen at `0.0.0.0:8000/mcp`.
 
-- List of market holidays for a country
-- Check if a specific date is a market holiday
-- Get upcoming holidays within a date range
-
-**Why wrap it in MCP?**
-
-1. **Caching** - MCP server caches holiday data to reduce API calls
-2. **Transformation** - Converts Nager.Date format to FSI-relevant format
-3. **Validation** - Ensures dates are valid trading days
-4. **Future-proofing** - Easy to swap Nager.Date for an internal API later
+**Why not stdio?** Stdio transport requires a persistent stdin/stdout pipe between the client and server. Container runtimes like AgentCore cannot provide this — they communicate over HTTP. Streamable-HTTP is the appropriate transport for server-hosted MCP.
 
 ## Step 1: Review the MCP Server Code
 
-The MCP server code is in `mcp-server/market-calendar/app.py`:
+The MCP server is in `mcp-server/server.py`. It uses **FastMCP** from the `mcp` package:
 
 ```python
-from mcp.server import Server
-from mcp.types import Tool
+from mcp.server.fastmcp import FastMCP
 import httpx
 from datetime import datetime, timedelta
 
-app = Server("market-calendar")
+# stateless_http=True is required for AgentCore Runtime.
+# AgentCore provides session isolation and adds Mcp-Session-Id headers.
+mcp = FastMCP("market-calendar", host="0.0.0.0", stateless_http=True)
 
-@app.tool()
+@mcp.tool()
 async def check_market_holidays(
-    country_code: str = "US",
-    days_ahead: int = 7
+    country_code: str = "AU",
+    days_ahead: int = 7,
 ) -> dict:
     """
-    Check for market holidays in the next N days.
-    
-    Args:
-        country_code: ISO country code (default: US)
-        days_ahead: Number of days to check ahead (default: 7)
-    
-    Returns:
-        dict: List of holidays with dates and names
+    Check for public holidays that affect market trading in the next N days.
+    ...
     """
-    today = datetime.now()
-    year = today.year
-    
-    # Fetch holidays from Nager.Date API
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            f"https://date.nager.at/api/v3/PublicHolidays/{year}/{country_code}"
-        )
-        holidays = response.json()
-    
-    # Filter to next N days
-    end_date = today + timedelta(days=days_ahead)
-    upcoming = []
-    
-    for holiday in holidays:
-        holiday_date = datetime.strptime(holiday['date'], '%Y-%m-%d')
-        if today <= holiday_date <= end_date:
-            upcoming.append({
-                'date': holiday['date'],
-                'name': holiday['name'],
-                'is_trading_day': False
-            })
-    
-    return {
-        'country': country_code,
-        'period_start': today.strftime('%Y-%m-%d'),
-        'period_end': end_date.strftime('%Y-%m-%d'),
-        'holidays': upcoming,
-        'trading_days_affected': len(upcoming)
-    }
+    # Calls Nager.Date API and filters holidays to the requested window
+    ...
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8081)
+    mcp.run(transport="streamable-http")
 ```
 
-**Key features:**
+**Key points:**
 
-1. **MCP decorator** - `@app.tool()` exposes the function as an MCP tool
-2. **Async** - Uses async HTTP for better performance
-3. **Filtering** - Only returns relevant upcoming holidays
-4. **FSI context** - Marks holidays as non-trading days
+- `@mcp.tool()` is the only decorator needed — FastMCP reads the type annotations and docstring to generate the MCP tool schema automatically
+- `stateless_http=True` tells FastMCP not to maintain session state; AgentCore Runtime handles session isolation
+- `transport="streamable-http"` is the required transport for AgentCore Runtime
 
-## Step 2: Update Agent Code
+## Step 2: Review the Dockerfile
 
-Add the market calendar tool to `agent/app.py`:
+The MCP server Dockerfile in `mcp-server/Dockerfile` is similar to the agent Dockerfile but simpler — no Bedrock or OpenTelemetry needed. The server exposes port 8000:
+
+```dockerfile
+EXPOSE 8000
+CMD ["python", "server.py"]
+```
+
+The agent Dockerfile exposes both 8080 (BedrockAgentCoreApp) and 8000. The MCP server only needs 8000.
+
+## Step 3: Review the Agent Update
+
+The `check_market_holidays` tool has been added to `agent/app.py`. When `ENABLE_MCP_TARGET=true`, the agent exposes this tool to AgentCore:
 
 ```python
-@agent.tool
-def check_market_holidays(country_code: str = "US", days_ahead: int = 7) -> dict:
+def check_market_holidays(country_code: str = "AU", days_ahead: int = 7) -> dict:
     """
-    Check for market holidays in the upcoming period.
-    
-    Args:
-        country_code: ISO country code (default: US)
-        days_ahead: Number of days to check ahead (default: 7)
-    
-    Returns:
-        dict: Upcoming holidays affecting trading
+    Check for public holidays that affect market trading in the next N days.
+    ...
     """
+    # Implementation handled by AgentCore Gateway -> MCP Server
     pass
+
+if os.environ.get("ENABLE_MCP_TARGET", "false").lower() == "true":
+    tools.append(check_market_holidays)
 ```
 
-Update instructions:
+The function body is empty — AgentCore Gateway intercepts calls to this function by name and routes them to the registered MCP server target. FastMCP on the server side handles the actual Nager.Date API call.
 
-```python
-agent = Agent(
-    name="MarketPulse",
-    model="anthropic.claude-sonnet-4-5-20250929-v1:0",
-    instructions="""
-    You are MarketPulse, an AI investment brief assistant.
-    
-    Available tools:
-    - get_stock_price: Real-time stock data
-    - assess_client_suitability: Risk profile assessment
-    - check_market_holidays: Upcoming market closures
-    
-    Always check for market holidays when discussing trade execution timing.
-    Alert advisors to upcoming closures that might affect their clients.
-    """
-)
-```
+## Step 4: Configure Terraform
 
-## Step 3: Configure Terraform
-
-Edit `terraform/terraform.tfvars`:
+Edit `terraform/terraform.tfvars` to enable the MCP target:
 
 ```hcl
-# Feature Flags (Add MCP target)
-enable_runtime = true
-enable_gateway = true
-enable_http_target = true
+enable_gateway       = true
+enable_http_target   = true
 enable_lambda_target = true
-enable_mcp_target = true
-enable_memory = false
-enable_identity = false
+enable_mcp_target    = true   # <-- add this
+enable_memory        = false
+enable_identity      = false
 enable_observability = false
 ```
 
-## Step 4: Rebuild and Deploy
+## Step 5: Build and Deploy
 
-Rebuild both the agent and MCP server:
+Build and push the MCP server container:
 
 ```bash
-./scripts/build-agent.sh
-./scripts/build-mcp-server.sh
+./scripts/build-mcp.sh
 ```
 
-Deploy with Terraform:
+Apply the Terraform configuration:
 
 ```bash
 cd terraform
@@ -210,189 +160,209 @@ terraform apply
 
 **What Terraform creates:**
 
-- Second AgentCore Runtime instance for MCP server
-- MCP target in Gateway pointing to the MCP server
-- Tool association for `check_market_holidays`
-- Network configuration for agent-to-MCP communication
+- ECR repository for the MCP server image
+- IAM role for the MCP server Runtime (ECR pull + CloudWatch only — no Bedrock needed)
+- Second AgentCore Runtime hosting the MCP server container
+- Runtime Endpoint for the MCP server
+- IAM policy granting the Gateway role permission to invoke the MCP Runtime
+- Gateway MCP_SERVER target pointing to the MCP Runtime invocation URL
+- SSM Parameter storing the MCP target ID (used by destroy provisioner)
 
-**Expected output:**
+After apply, Terraform calls `synchronize-gateway-targets` to trigger MCP tool discovery. AgentCore connects to the MCP server, calls `tools/list`, and indexes the `check_market_holidays` schema.
+
+**Expected outputs:**
 
 ```
-Apply complete! Resources: 5 added, 1 changed, 0 destroyed.
+Apply complete! Resources: 8 added, 1 changed, 0 destroyed.
 
 Outputs:
 
-mcp_server_endpoint = "https://mcp-abc123.agentcore.ap-southeast-2.amazonaws.com"
-mcp_target_id = "tgt-mcp-calendar-123"
+ecr_mcp_repository_url   = "123456789012.dkr.ecr.ap-southeast-2.amazonaws.com/marketpulse-workshop-mcp-server"
+mcp_server_runtime_name  = "marketpulse_workshop_mcp_server"
+mcp_server_endpoint_name = "marketpulse_workshop_mcp_endpoint"
+mcp_target_configured    = true
 ```
 
-## Step 5: Test Market Calendar Queries
+## Step 6: Rebuild the Agent Container
 
-Test basic holiday check:
+The agent needs to pick up the new `ENABLE_MCP_TARGET` environment variable. Terraform updates the environment variable on the Runtime automatically, but the agent container must also be rebuilt so the new tool is registered in the tools list:
 
 ```bash
-python scripts/test-agent.py "Are there any market holidays this week?"
+./scripts/build-agent.sh
 ```
 
-**Expected response:**
+Wait 2-3 minutes for the Runtime to restart with the new container image.
+
+## Step 7: Test Market Calendar Queries
+
+Run the market calendar test script:
+
+```bash
+python scripts/test-calendar.py
+```
+
+**What the script tests:**
+
+1. Basic Australian market holiday check for the current week
+2. Trade timing query — checks for closures before executing a large order
+3. US market holiday lookup over a 14-day window
+
+**Example response:**
 
 ```
 Agent Response:
-===============
+==============================================================
 
-Market Calendar Check (US Markets)
+Market Calendar Check - Australian Markets
 
-Period: Feb 18 - Feb 25, 2026
+Period: 24 Feb - 3 Mar 2026
 
-Upcoming Holidays:
-- Monday, Feb 22: Presidents' Day (Markets Closed)
+No scheduled market closures in the next 7 days.
 
-Trading Impact: 1 day affected
-Normal trading resumes Tuesday, Feb 23.
+Trading is open Monday to Friday this week. All sessions are
+operating normally. Safe to proceed with order execution.
 
-Note: Plan client meetings and trade executions accordingly.
+Note: Always confirm with the exchange for early closes or
+unscheduled closures.
 ```
 
-Test with trade timing:
+## Step 8: Review MCP Server Logs
+
+Check MCP server container logs:
 
 ```bash
-python scripts/test-agent.py "I want to buy Apple shares on Monday. Any issues?"
-```
+# Get the runtime name from Terraform output
+MCP_RUNTIME=$(cd terraform && terraform output -raw mcp_server_runtime_name)
 
-**Expected response:**
-
-```
-Agent Response:
-===============
-
-Trade Timing Advisory
-
-Stock: Apple Inc. (AAPL)
-Current Price: $184.25
-
-⚠️ Market Holiday Conflict
-
-Monday, Feb 22 is Presidents' Day - US markets are closed.
-
-Recommendation:
-- Place order for Tuesday, Feb 23 market open
-- Consider limit order to control execution price
-- Monitor pre-market indicators Monday evening
-
-Would you like me to set a reminder for Tuesday?
-```
-
-## Step 6: View MCP Server Logs
-
-Check MCP server logs:
-
-```bash
-aws logs tail /aws/bedrock-agentcore/runtime/marketpulse-mcp --follow
+aws logs tail /aws/bedrock-agentcore/runtime/${MCP_RUNTIME} --follow
 ```
 
 **What to look for:**
 
 ```
-[INFO] MCP Server started: market-calendar
-[INFO] Tool registered: check_market_holidays
-[INFO] Request: check_market_holidays(country_code=US, days_ahead=7)
-[INFO] Fetching holidays from Nager.Date API
-[INFO] Found 1 holiday in range
-[INFO] Response returned (latency: 234ms)
+[INFO] Starting MarketPulse MCP server on port 8000
+[INFO] Fetching holidays from https://date.nager.at/api/v3/PublicHolidays/2026/AU
+[INFO] MCP Tool: check_market_holidays called
 ```
 
-## MCP vs HTTP vs Lambda: Decision Matrix
+## How Gateway Reaches the MCP Server
 
-| Factor | HTTP Target | Lambda Target | MCP Target |
-|--------|-------------|---------------|------------|
-| **Hosting** | External | AWS Lambda | AgentCore Runtime |
-| **Protocol** | REST | AWS SDK | MCP |
-| **Reusability** | API-specific | Single function | Multi-tool server |
-| **State** | Stateless | Stateless | Can maintain state |
-| **Discovery** | Manual config | Manual config | Automatic via MCP |
-| **Resources** | No | No | Yes (docs, data) |
+When you create an MCP_SERVER Gateway target, you provide an **invocation URL**. Terraform constructs this from the Runtime ARN and Endpoint name:
 
-**When to use MCP:**
+```
+https://bedrock-agentcore.{region}.amazonaws.com/runtimes/{url-encoded-arn}/invocations?qualifier={endpoint-name}
+```
 
-- You need multiple related tools (e.g., calendar tools: holidays, hours, closures)
-- You want to provide resources (e.g., market summaries, product docs)
-- You want automatic tool discovery
-- You're building reusable services for multiple agents
+The Gateway authenticates to this URL using `GATEWAY_IAM_ROLE` — it signs requests with the Gateway's IAM role. The MCP Runtime accepts AWS SigV4 authentication.
+
+This is the same URL format used to invoke any AgentCore Runtime, whether it hosts an agent or an MCP server.
+
+## MCP vs HTTP vs Lambda: Decision Guide
+
+Use this to choose the right target type for future tools:
+
+**Use HTTP target** when:
+- Tool calls an external API that already has an OpenAPI spec
+- You don't control the API server
+- Authentication is via API key, OAuth token, or no auth
+
+**Use Lambda target** when:
+- Business logic lives in your AWS account
+- You need IAM-controlled access to AWS resources (DynamoDB, S3, etc.)
+- Compliance requires versioned, auditable functions (e.g., risk scoring)
+
+**Use MCP target** when:
+- You are building a reusable tool service hosted in your own Runtime
+- Multiple related tools belong together in one server
+- You want automatic tool discovery — no manual schema management
 
 ## Verification Checklist
 
-- [ ] MCP server container built and pushed
-- [ ] Agent rebuilt with holiday tool
-- [ ] Terraform apply successful
-- [ ] `mcp_server_endpoint` output received
-- [ ] Test queries return holiday data
+- [ ] `./scripts/build-mcp.sh` completes without error
+- [ ] `terraform apply` succeeds — all 8 resources created
+- [ ] `mcp_target_configured = true` in outputs
+- [ ] Agent container rebuilt and pushed with `./scripts/build-agent.sh`
+- [ ] `python scripts/test-calendar.py` returns holiday data
 - [ ] MCP server logs show tool invocations
 
 ## Common Issues
 
-### MCP server not responding
+### MCP server not responding (tool timeout)
 
-**Cause:** Server still starting up (cold start).
+**Cause:** MCP server Runtime still starting up (cold start after first deploy).
 
-**Solution:** Wait 30-60 seconds after deployment:
+**Solution:** Wait 3-5 minutes after `terraform apply`, then retest.
+
 ```bash
-# Check server health
-aws agentcore describe-runtime --runtime-id <mcp_runtime_id>
+# Check runtime status
+aws bedrock-agentcore-control get-agent-runtime \
+  --agent-runtime-id $(cd terraform && terraform output -raw mcp_server_runtime_id) \
+  --region ap-southeast-2
 ```
 
-### "Connection refused" from Gateway
+### Gateway cannot reach MCP Runtime
 
-**Cause:** Network configuration issue between Gateway and MCP server.
+**Cause:** IAM policy `gateway_mcp_access` not applied yet, or wrong Runtime ARN.
 
-**Solution:** Check security group rules in Terraform:
+**Solution:** Verify the policy exists:
+
 ```bash
-terraform state show aws_security_group.mcp_server
+aws iam get-role-policy \
+  --role-name marketpulse-workshop-gateway-role \
+  --policy-name marketpulse-workshop-gateway-mcp-access
 ```
 
-### Tool returns empty holiday list
+### Tool not appearing in agent tool list
 
-**Cause:** Nager.Date API rate limit or incorrect country code.
+**Cause:** Agent container was not rebuilt after enabling `enable_mcp_target`.
 
-**Solution:** Verify API accessibility:
+**Solution:** Rebuild and push the agent container, then wait for the Runtime to restart:
+
 ```bash
-curl "https://date.nager.at/api/v3/PublicHolidays/2026/US"
+./scripts/build-agent.sh
 ```
 
-## FSI Relevance: MCP in Production
+### Nager.Date returns 404 for country code
 
-MCP servers in FSI enable:
+**Cause:** Invalid country code. Nager.Date uses ISO 3166-1 alpha-2 codes.
 
-1. **Service Reuse** - One MCP server serves multiple agents across teams
-2. **Knowledge Bases** - MCP resources provide product docs, compliance guidelines
-3. **Internal APIs** - Wrap legacy systems in MCP for agent access
-4. **Vendor Integration** - Third-party vendors can provide MCP endpoints
-5. **Tool Marketplaces** - Share MCP tools across your organisation
+**Solution:** Try `AU` (Australia), `US` (United States), `GB` (United Kingdom), `NZ` (New Zealand).
 
-**Example FSI use cases:**
+Verify directly:
 
-- **Compliance MCP** - Check regulations, get approval requirements
-- **Product MCP** - Query product catalog, retrieve terms and conditions
-- **Market Data MCP** - Real-time prices, historical data, analytics
-- **Client Data MCP** - KYC checks, account status, portfolio positions
+```bash
+curl "https://date.nager.at/api/v3/PublicHolidays/2026/AU"
+```
+
+## FSI Context: MCP in Production
+
+In production FSI environments, MCP servers enable **service reuse** across agent teams:
+
+- **Compliance MCP** - Check regulatory requirements, get approval thresholds
+- **Product MCP** - Query product catalogue, retrieve term sheets
+- **Client Data MCP** - KYC status, account flags, suitability history
+- **Market Data MCP** - Real-time prices, corporate actions, index compositions
+
+One MCP server can serve multiple agents across different teams, with access controlled by the Gateway's IAM and credential configuration.
 
 ## Discussion Questions
 
-1. **What internal services could you expose as MCP tools?**
-2. **How does MCP compare to your current service integration patterns?**
-3. **What benefits do you see from having services in AgentCore Runtime?**
+1. What internal systems in your organisation could be wrapped as MCP tools?
+2. How does the MCP tool discovery mechanism compare to your current API catalogue approach?
+3. What are the IAM boundaries between the Gateway, MCP server, and the data it accesses?
 
 ## Next Steps
 
-You've deployed an MCP server and connected it via Gateway. The agent now has access to three target types: HTTP, Lambda, and MCP.
+You now have three working Gateway target types: HTTP, Lambda, and MCP. The agent can retrieve stock prices, assess client suitability, and check market calendars.
 
-In [Module 5](05-memory.md), you'll enable AgentCore Memory to persist advisor and client context across sessions.
+In [Module 5](05-memory.md), you will enable AgentCore Memory to persist advisor preferences and client context across separate sessions.
 
 ---
 
 **Key Takeaways:**
 
-- MCP is a standard protocol for exposing tools to agents
-- MCP servers can run in AgentCore Runtime alongside agents
-- One MCP server can provide multiple tools and resources
-- Gateway handles MCP protocol details transparently
-- MCP enables service reuse across multiple agents
+- MCP servers use `streamable-http` transport in AgentCore Runtime — stdio is not supported
+- `stateless_http=True` in FastMCP is required; AgentCore Runtime handles session isolation
+- MCP tool schemas are auto-discovered by the Gateway — no manual schema management
+- The Gateway authenticates to the MCP Runtime using its IAM role (GATEWAY_IAM_ROLE)
+- The invocation URL format encodes the Runtime ARN in the path

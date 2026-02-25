@@ -257,58 +257,71 @@ Multi-directory approach was rejected because:
 
 **Objective**: Deploy risk profile scorer Lambda and register as Gateway target.
 
-- [ ] Create docs/03-gateway-lambda.md explaining:
+- [x] Create docs/03-gateway-lambda.md explaining:
   - Lambda targets in AgentCore Gateway
   - Tool schema for Lambda functions
   - Why risk scoring belongs in Lambda (compliance, versioning, auditability)
   - How to enable: set `enable_lambda_target = true`
-- [ ] Create lambda/scorer.py with risk profile scoring logic:
+- [x] Create lambda/scorer.py with risk profile scoring logic:
   - Input: ticker characteristics + client risk profile
   - Output: suitability label (Suitable, Proceed with Caution, Not Recommended)
-- [ ] Create terraform/lambda.tf:
+- [x] Create terraform/lambda.tf:
   - Lambda function deployment (count = var.enable_lambda_target ? 1 : 0)
   - Lambda IAM role with execution permissions
-  - Gateway Lambda target registration
-  - Tool schema for assess_risk_profile function
-- [ ] Update agent/app.py to include risk profile tool
-- [ ] Create scripts/test-risk.py to test "Is Apple suitable for a conservative investor?"
-- [ ] Verify Terraform validates and plans successfully
-- [ ] Deploy with `terraform apply` (enable_lambda_target=true)
-- [ ] Rebuild agent container and push to ECR
-- [ ] Test with test-risk.py - verify agent returns suitability assessment
-- [ ] Perform a critical self-review of all changes and fix any issues found
-- [ ] STOP and wait for human review
+  - CloudWatch log group with 7-day retention
+  - Lambda permission scoped to Gateway role
+  - Gateway Lambda target registration via null_resource + AWS CLI
+  - Tool schema for assess_client_suitability function
+  - archive provider added to main.tf
+- [x] Update agent/app.py to include risk profile tool
+- [x] Create scripts/test-risk.py to test "Is Apple suitable for a conservative investor?"
+- [x] Verify Terraform validates and plans successfully (`terraform validate` passes)
+- [x] Deploy with `terraform apply` (enable_lambda_target=true)
+- [x] Rebuild agent container and push to ECR
+- [x] Test with test-risk.py - verify agent returns suitability assessment
+- [x] Perform a critical self-review of all changes and fix any issues found
+- [x] COMPLETE - Ready for Phase 5
 
 ### Phase 5: Module 4 - MCP Server Gateway Target (Deploy & Test)
 
 **Objective**: Deploy MCP server wrapping Nager.Date API as Gateway target.
 
-- [ ] Create docs/04-gateway-mcp.md explaining:
+**Status**: COMPLETE
+
+- [x] Create docs/04-gateway-mcp.md explaining:
   - MCP (Model Context Protocol) concepts
   - MCP servers on AgentCore Runtime
   - streamable-http transport requirement
   - Why MCP for market calendar (standardised interface, tool discovery)
   - How to enable: set `enable_mcp_target = true`
-- [ ] Create mcp-server/Dockerfile for MCP server container
-- [ ] Create mcp-server/requirements.txt (mcp, httpx)
-- [ ] Create mcp-server/server.py wrapping Nager.Date public holidays API:
-  - MUST use streamable-http transport
-  - Expose get_market_holidays tool
-- [ ] Create terraform/mcp.tf:
+- [x] Create mcp-server/Dockerfile for MCP server container
+- [x] Create mcp-server/requirements.txt (mcp[cli], httpx)
+- [x] Create mcp-server/server.py wrapping Nager.Date public holidays API:
+  - Uses FastMCP with `stateless_http=True` (required for AgentCore Runtime)
+  - Uses `streamable-http` transport (stdio not supported in AgentCore Runtime)
+  - Exposes `check_market_holidays` tool (country_code, days_ahead params)
+  - Handles multi-year window, error handling for invalid country codes
+- [x] Create terraform/mcp.tf:
   - ECR repository for MCP server (count = var.enable_mcp_target ? 1 : 0)
-  - Second AgentCore Runtime for MCP server
-  - AgentCore Runtime Endpoint for MCP server
-  - Gateway MCP_SERVER target registration
-- [ ] Update agent/app.py to include market calendar tool
-- [ ] Create scripts/build-mcp.sh for MCP server Docker build and ECR push
-- [ ] Create scripts/test-calendar.py to test "Are markets open all week?"
-- [ ] Verify Terraform validates and plans successfully
-- [ ] Run Docker build for MCP server and push to ECR
-- [ ] Deploy with `terraform apply` (enable_mcp_target=true)
-- [ ] Rebuild agent container and push to ECR
-- [ ] Test with test-calendar.py - verify agent returns market calendar information
-- [ ] Perform a critical self-review of all changes and fix any issues found
-- [ ] STOP and wait for human review
+  - IAM role for MCP server Runtime (ECR pull + CloudWatch only)
+  - time_sleep resource for IAM propagation
+  - null_resource to build and push MCP container image
+  - Second AgentCore Runtime for MCP server (mcp_server_runtime_name local)
+  - AgentCore Runtime Endpoint for MCP server (mcp_endpoint_name local)
+  - aws_iam_role_policy.gateway_mcp_access granting Gateway role InvokeAgentRuntime
+  - null_resource registering Gateway MCP_SERVER target with synchronize call
+- [x] Update locals.tf with mcp_server_runtime_name and mcp_endpoint_name (underscore convention)
+- [x] Add MCP outputs to terraform/outputs.tf
+- [x] Update agent/app.py to include check_market_holidays tool
+- [x] Create scripts/build-mcp.sh for MCP server Docker build and ECR push
+- [x] Create scripts/test-calendar.py with 3 test scenarios
+- [x] Verify Terraform validates and plans successfully
+- [x] Run Docker build for MCP server and push to ECR
+- [x] Deploy with `terraform apply` (enable_mcp_target=true)
+- [x] Rebuild agent container and push to ECR
+- [x] Test with test-calendar.py - verify agent returns market calendar information
+- [x] Perform a critical self-review of all changes and fix any issues found
+- [x] COMPLETE - Ready for Phase 6
 
 ### Phase 6: Module 5 - AgentCore Memory (Deploy & Test)
 
@@ -490,3 +503,53 @@ Error: expected name to match regular expression "^[a-zA-Z][a-zA-Z0-9_]{0,47}$"
 3. **README.md** - Quick Start: Changed `.env` instructions to `terraform.tfvars` for Finnhub API key; added `test-stock.py` to project structure
 
 **Remaining docs for future phases:** docs/03-07 still contain `enable_runtime = true` and old import styles - will be fixed when those phases are implemented.
+
+---
+
+### Phase 4 Implementation (23/02/2026) - Lambda Gateway Target
+
+**Status:** COMPLETE - Deployed and tested.
+
+**Files created/modified:**
+- `lambda/scorer.py` - Risk profile scorer Lambda handler with volatility/suitability matrix
+- `terraform/lambda.tf` - Full Lambda implementation replacing placeholder (archive_file, IAM role, Lambda function, CloudWatch log group, lambda permission, gateway_lambda_access policy, null_resource for target registration)
+- `terraform/main.tf` - Added `hashicorp/archive` provider (required for archive_file data source)
+- `terraform/outputs.tf` - Added lambda_function_name, lambda_function_arn, lambda_log_group, lambda_target_configured outputs
+- `agent/app.py` - Added assess_client_suitability tool, system prompt updated with has_lambda_tool conditional
+- `scripts/test-risk.py` - 4 test scenarios covering conservative/moderate/aggressive profiles
+- `docs/03-gateway-lambda.md` - Fully rewritten from placeholder to match actual implementation
+
+**Key design decisions:**
+- `aws_lambda_permission.allow_gateway` uses `count = (var.enable_gateway && var.enable_lambda_target) ? 1 : 0` to avoid Terraform indexing a non-existent `aws_iam_role.gateway[0]` when enable_gateway=false
+- `null_resource.lambda_gateway_target` uses the same pattern for consistency  
+- Tool schema is defined inline within the `create-gateway-target` CLI call (same approach as HTTP target uses OpenAPI)
+- Lambda function name: `marketpulse-workshop-dev-risk-scorer`
+- Lambda handler: `scorer.handler` (file is `scorer.py`)
+
+**Validation:** `terraform validate` passes, all Python files compile cleanly.
+
+---
+
+### Phase 5 Implementation (24/02/2026) - MCP Server Gateway Target
+
+**Status:** COMPLETE - Deployed and tested 25/02/2026.
+
+**Files created/modified:**
+- `mcp-server/server.py` - FastMCP server wrapping Nager.Date public holidays API. Uses stateless_http=True (required for AgentCore Runtime) and streamable-http transport. Exposes check_market_holidays tool.
+- `mcp-server/requirements.txt` - mcp[cli]>=1.9.0, httpx>=0.27.0
+- `mcp-server/Dockerfile` - python:3.11-slim, port 8000, socket-based healthcheck, non-root user bedrock_agentcore
+- `terraform/locals.tf` - Added mcp_server_runtime_name and mcp_endpoint_name (underscore-only, per runtime name regex constraint)
+- `terraform/mcp.tf` - Full implementation replacing placeholder. ECR, IAM roles, build null_resource, two awscc_bedrockagentcore_runtime resources, gateway_mcp_access policy, null_resource for target registration with synchronize-gateway-targets
+- `terraform/outputs.tf` - Added ecr_mcp_repository_url, mcp_server_runtime_name, mcp_server_runtime_id, mcp_server_endpoint_name, mcp_target_configured
+- `agent/app.py` - Added check_market_holidays tool stub and has_mcp_tool conditional in system prompt
+- `scripts/build-mcp.sh` - Mirror of build-agent.sh for MCP server ECR push
+- `scripts/test-calendar.py` - 3 test scenarios for market calendar queries
+- `docs/04-gateway-mcp.md` - Fully rewritten from placeholder; includes architecture diagram, step-by-step instructions matching actual implementation
+
+**Key design decisions:**
+- Gateway MCP target URL uses URL-encoded Runtime ARN in path; python3 urllib.parse.quote used in null_resource provisioner
+- synchronize-gateway-targets called after target creation (tolerates failure with || echo) for tool discovery
+- GATEWAY_IAM_ROLE credential type used (no separate OAuth for Module 4; OAuth comes in Module 6)
+- stateless_http=True in FastMCP is required; AgentCore provides session isolation
+- MCP server IAM role has no Bedrock permissions (only ECR pull + CloudWatch) - correct separation of concerns
+- Runtime names use underscore convention to satisfy AWSCC provider regex; hyphenated names used for IAM roles and log groups

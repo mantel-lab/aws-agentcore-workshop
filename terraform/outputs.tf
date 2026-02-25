@@ -70,6 +70,59 @@ output "openapi_spec_bucket" {
 }
 
 # ============================================================================
+# Lambda Risk Scorer (Module 3)
+# ============================================================================
+
+output "lambda_function_name" {
+  description = "Name of the risk scorer Lambda function"
+  value       = var.enable_lambda_target ? aws_lambda_function.risk_scorer[0].function_name : null
+}
+
+output "lambda_function_arn" {
+  description = "ARN of the risk scorer Lambda function"
+  value       = var.enable_lambda_target ? aws_lambda_function.risk_scorer[0].arn : null
+}
+
+output "lambda_log_group" {
+  description = "CloudWatch log group for Lambda execution logs"
+  value       = var.enable_lambda_target ? aws_cloudwatch_log_group.risk_scorer[0].name : null
+}
+
+output "lambda_target_configured" {
+  description = "Whether the Lambda Gateway target is configured"
+  value       = var.enable_lambda_target
+}
+
+# ============================================================================
+# MCP Server (Module 4)
+# ============================================================================
+
+output "ecr_mcp_repository_url" {
+  description = "URL of the ECR repository for the MCP server container"
+  value       = var.enable_mcp_target ? aws_ecr_repository.mcp_server[0].repository_url : null
+}
+
+output "mcp_server_runtime_name" {
+  description = "Name of the AgentCore Runtime for the MCP server"
+  value       = var.enable_mcp_target ? awscc_bedrockagentcore_runtime.mcp[0].agent_runtime_name : null
+}
+
+output "mcp_server_runtime_id" {
+  description = "ID of the AgentCore Runtime for the MCP server"
+  value       = var.enable_mcp_target ? awscc_bedrockagentcore_runtime.mcp[0].id : null
+}
+
+output "mcp_server_endpoint_name" {
+  description = "Name of the AgentCore Runtime Endpoint for the MCP server (use as qualifier)"
+  value       = var.enable_mcp_target ? awscc_bedrockagentcore_runtime_endpoint.mcp[0].name : null
+}
+
+output "mcp_target_configured" {
+  description = "Whether the MCP Gateway target is configured"
+  value       = var.enable_mcp_target
+}
+
+# ============================================================================
 # Workshop Progress
 # ============================================================================
 
