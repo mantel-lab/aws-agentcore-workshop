@@ -48,7 +48,15 @@ enable_observability = false
 
 # Finnhub API Key - Get free key at https://finnhub.io
 # Required when enable_http_target = true
-# finnhub_api_key = "your-finnhub-api-key-here"
+# 
+# WORKSHOP SETUP:
+# 1. Get your free API key: https://finnhub.io
+# 2. Uncomment the line below and paste your key
+# 3. Save this file and run terraform apply
+# 
+# This file is in .gitignore - your key is safe!
+# 
+# finnhub_api_key = "paste-your-key-here"
 
 # ============================================================================
 # Bedrock Configuration

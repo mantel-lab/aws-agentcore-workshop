@@ -45,6 +45,26 @@ aws bedrock list-foundation-models --region us-east-1 \
   --by-provider anthropic
 ```
 
+### 4. Configure API Keys Securely
+
+**IMPORTANT: Never commit API keys to version control!**
+
+Get your free Finnhub API key: https://finnhub.io
+
+**Workshop Setup (Simple):**
+
+```bash
+# 1. Get your free API key from https://finnhub.io
+# 2. Edit terraform.tfvars and uncomment the finnhub_api_key line
+# 3. Paste your API key
+# 4. Save the file
+```
+
+**Why this is safe:**
+- ✅ `terraform.tfvars` is in `.gitignore` - won't be committed
+- ✅ Simple to use for workshop
+- ✅ No environment variable setup needed
+
 ## Quick Start
 
 ### Phase 1: Foundation (Current)
@@ -127,10 +147,12 @@ The AgentCore Gateway resources use AWS CLI commands via `null_resource` provisi
 
 Enable gateway features:
 ```bash
-# In terraform.tfvars
+# 1. Edit terraform.tfvars:
 enable_gateway     = true
 enable_http_target = true
-finnhub_api_key    = "your-api-key"  # Get from https://finnhub.io
+
+# 2. Uncomment and add your Finnhub API key (see section 4 above)
+finnhub_api_key = "your-api-key-from-finnhub.io"
 ```
 
 Then deploy:
