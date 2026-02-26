@@ -12,6 +12,7 @@
 resource "aws_ecr_repository" "agent" {
   name                 = local.ecr_repository_name
   image_tag_mutability = "MUTABLE"
+  force_delete         = true
 
   image_scanning_configuration {
     scan_on_push = true
@@ -57,7 +58,7 @@ resource "null_resource" "build_agent_image" {
   }
 
   provisioner "local-exec" {
-    command     = "${path.module}/../scripts/build-agent.sh"
+    command     = "${path.module}/../scripts/build-container.sh agent"
     working_dir = path.module
     environment = {
       ECR_REPO_URL = aws_ecr_repository.agent.repository_url

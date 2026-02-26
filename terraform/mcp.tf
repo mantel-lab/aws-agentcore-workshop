@@ -14,6 +14,7 @@ resource "aws_ecr_repository" "mcp_server" {
 
   name                 = local.ecr_mcp_repository_name
   image_tag_mutability = "MUTABLE"
+  force_delete         = true
 
   image_scanning_configuration {
     scan_on_push = true
@@ -62,7 +63,7 @@ resource "null_resource" "build_mcp_image" {
   }
 
   provisioner "local-exec" {
-    command     = "${path.module}/../scripts/build-mcp.sh"
+    command     = "${path.module}/../scripts/build-container.sh mcp"
     working_dir = path.module
     environment = {
       ECR_REPO_URL = aws_ecr_repository.mcp_server[0].repository_url
@@ -302,11 +303,12 @@ resource "null_resource" "mcp_oauth_credential_provider" {
   count = (var.enable_gateway && var.enable_mcp_target) ? 1 : 0
 
   triggers = {
-    user_pool_id = aws_cognito_user_pool.mcp_server[0].id
-    client_id    = aws_cognito_user_pool_client.gateway_m2m[0].id
-    region       = var.aws_region
-    project_name = var.project_name
-    environment  = var.environment
+    user_pool_id  = aws_cognito_user_pool.mcp_server[0].id
+    client_id     = aws_cognito_user_pool_client.gateway_m2m[0].id
+    region        = var.aws_region
+    project_name  = var.project_name
+    environment   = var.environment
+    provider_name = "${local.mcp_server_name}-oauth-provider"
   }
 
   provisioner "local-exec" {
@@ -324,16 +326,37 @@ resource "null_resource" "mcp_oauth_credential_provider" {
   provisioner "local-exec" {
     when    = destroy
     command = <<-EOT
+      # Try SSM first; fall back to listing by name if SSM was already cleaned up
       PROVIDER_ARN=$(aws ssm get-parameter \
         --name "/${self.triggers.project_name}/${self.triggers.environment}/mcp-oauth-provider-arn" \
         --query 'Parameter.Value' --output text \
         --region ${self.triggers.region} 2>/dev/null || echo "")
 
+      PROVIDER_NAME="${self.triggers.provider_name}"
+
+      if [ -z "$PROVIDER_ARN" ] || [ "$PROVIDER_ARN" = "None" ]; then
+        echo "SSM parameter not found - searching for provider by name..."
+        PROVIDER_ARN=$(aws bedrock-agentcore-control list-oauth2-credential-providers \
+          --region ${self.triggers.region} \
+          --query "credentialProviders[?name=='$PROVIDER_NAME'].credentialProviderArn | [0]" \
+          --output text 2>/dev/null || echo "")
+      fi
+
       if [ -n "$PROVIDER_ARN" ] && [ "$PROVIDER_ARN" != "None" ]; then
         echo "Deleting OAuth2 credential provider: $PROVIDER_ARN"
-        aws bedrock-agentcore-control delete-oauth2-credential-provider \
+        DELETE_OUTPUT=$(aws bedrock-agentcore-control delete-oauth2-credential-provider \
           --oauth2-credential-provider-arn "$PROVIDER_ARN" \
-          --region ${self.triggers.region} 2>/dev/null || true
+          --region ${self.triggers.region} 2>&1)
+        DELETE_EXIT=$?
+        if [ $DELETE_EXIT -ne 0 ]; then
+          echo "WARNING: Failed to delete OAuth2 credential provider: $DELETE_OUTPUT"
+          echo "You may need to delete it manually:"
+          echo "  aws bedrock-agentcore-control delete-oauth2-credential-provider --oauth2-credential-provider-arn $PROVIDER_ARN --region ${self.triggers.region}"
+        else
+          echo "OAuth2 credential provider deleted successfully"
+        fi
+      else
+        echo "No OAuth2 credential provider found to delete"
       fi
 
       aws ssm delete-parameter \

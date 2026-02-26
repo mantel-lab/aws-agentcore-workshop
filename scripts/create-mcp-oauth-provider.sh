@@ -64,11 +64,25 @@ set -e
 
 if [ ${PROVIDER_EXIT} -ne 0 ]; then
   if echo "${PROVIDER_OUTPUT}" | grep -q "ConflictException\|already exists"; then
-    echo -e "${YELLOW}Provider already exists - this can happen if a previous apply failed partway through.${NC}"
-    echo "The provider exists in AgentCore but was not recorded in SSM."
-    echo "Manual step required: find the provider ARN and set SSM parameter '${SSM_PARAM_NAME}'."
-    echo "  aws bedrock-agentcore-control list-oauth2-credential-providers --region ${AWS_REGION}"
-    exit 1
+    echo -e "${YELLOW}Provider already exists in AgentCore (leftover from a previous apply). Auto-recovering...${NC}"
+    PROVIDER_ARN=$(aws bedrock-agentcore-control list-oauth2-credential-providers \
+      --region "${AWS_REGION}" \
+      --query "credentialProviders[?name=='${PROVIDER_NAME}'].credentialProviderArn | [0]" \
+      --output text 2>/dev/null || echo "")
+    if [ -z "${PROVIDER_ARN}" ] || [ "${PROVIDER_ARN}" = "None" ]; then
+      echo -e "${RED}Could not find existing provider '${PROVIDER_NAME}' via list API.${NC}"
+      echo "Run: aws bedrock-agentcore-control list-oauth2-credential-providers --region ${AWS_REGION}"
+      exit 1
+    fi
+    echo -e "${GREEN}Found existing provider: ${PROVIDER_ARN}${NC}"
+    aws ssm put-parameter \
+      --name "${SSM_PARAM_NAME}" \
+      --value "${PROVIDER_ARN}" \
+      --type "String" \
+      --overwrite \
+      --region "${AWS_REGION}" > /dev/null
+    echo -e "${GREEN}Provider ARN stored in SSM: ${SSM_PARAM_NAME}${NC}"
+    exit 0
   else
     echo -e "${RED}Error creating OAuth2 credential provider:${NC}"
     echo "${PROVIDER_OUTPUT}"

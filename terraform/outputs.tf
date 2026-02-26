@@ -139,6 +139,27 @@ output "enabled_modules" {
   }
 }
 
+# Determine next workshop phase based on current state
+locals {
+  next_phase_map = [
+    { enabled = var.enable_observability, message = "All phases complete!" },
+    { enabled = var.enable_identity, message = "Phase 7: Enable observability" },
+    { enabled = var.enable_memory, message = "Phase 6: Enable identity" },
+    { enabled = var.enable_mcp_target, message = "Phase 5: Enable memory" },
+    { enabled = var.enable_lambda_target, message = "Phase 4: Enable MCP target" },
+    { enabled = var.enable_http_target, message = "Phase 3: Enable Lambda target" },
+    { enabled = var.enable_gateway, message = "Phase 2: Enable HTTP target" },
+  ]
+
+  # Find first incomplete phase (iterates through list until it finds false)
+  next_phase_determined = [
+    for phase in local.next_phase_map : phase.message
+    if !phase.enabled
+  ]
+
+  next_phase_final = length(local.next_phase_determined) > 0 ? local.next_phase_determined[0] : "Phase 2: Enable gateway and runtime"
+}
+
 # ============================================================================
 # Test Instructions
 # ============================================================================
@@ -150,17 +171,5 @@ output "test_command" {
 
 output "next_phase" {
   description = "Suggested next phase to enable"
-  value = var.enable_observability ? "All phases complete!" : (
-    var.enable_identity ? "Phase 7: Enable observability" : (
-      var.enable_memory ? "Phase 6: Enable identity" : (
-        var.enable_mcp_target ? "Phase 5: Enable memory" : (
-          var.enable_lambda_target ? "Phase 4: Enable MCP target" : (
-            var.enable_http_target ? "Phase 3: Enable Lambda target" : (
-              var.enable_gateway ? "Phase 2: Enable HTTP target" : "Phase 2: Enable gateway and runtime"
-            )
-          )
-        )
-      )
-    )
-  )
+  value       = local.next_phase_final
 }

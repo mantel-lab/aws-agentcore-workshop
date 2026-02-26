@@ -57,21 +57,6 @@ def get_stock_price(symbol: str) -> dict:
     # The Gateway routes this to the OpenAPI target based on function name
     pass
 
-# Build tool list based on enabled features
-tools = []
-
-# Debug: log environment variable value
-gateway_env = os.environ.get("ENABLE_GATEWAY", "false")
-logger.info(f"DEBUG: ENABLE_GATEWAY={gateway_env} (type: {type(gateway_env)})")
-logger.info(f"DEBUG: After lower(): '{gateway_env.lower()}'")
-logger.info(f"DEBUG: Comparison result: {gateway_env.lower() == 'true'}")
-
-if gateway_env.lower() == "true":
-    logger.info("Gateway enabled - stock price tool available")
-    tools.append(get_stock_price)
-else:
-    logger.info(f"Gateway NOT enabled - ENABLE_GATEWAY value was '{gateway_env}'")
-
 # Module 3: Risk scoring tool via Lambda Gateway target
 # When ENABLE_LAMBDA_TARGET is set, AgentCore routes assess_client_suitability
 # calls through the Gateway to the risk scorer Lambda function.
@@ -92,10 +77,6 @@ def assess_client_suitability(ticker: str, risk_profile: str) -> dict:
     """
     # Implementation handled by AgentCore Gateway -> Lambda
     pass
-
-if os.environ.get("ENABLE_LAMBDA_TARGET", "false").lower() == "true":
-    logger.info("Lambda target enabled - risk scoring tool available")
-    tools.append(assess_client_suitability)
 
 # Module 4: Market calendar tool via MCP Gateway target
 # When ENABLE_MCP_TARGET is set, AgentCore routes check_market_holidays
@@ -119,36 +100,63 @@ def check_market_holidays(country_code: str = "AU", days_ahead: int = 7) -> dict
     # Implementation handled by AgentCore Gateway -> MCP Server
     pass
 
-if os.environ.get("ENABLE_MCP_TARGET", "false").lower() == "true":
-    logger.info("MCP target enabled - market calendar tool available")
-    tools.append(check_market_holidays)
+# Build tool list based on enabled features
+tools = []
+
+# Tool configuration - simplified registration pattern
+tool_config = [
+    ("ENABLE_GATEWAY", get_stock_price, "Gateway enabled - stock price tool available"),
+    ("ENABLE_LAMBDA_TARGET", assess_client_suitability, "Lambda target enabled - risk scoring tool available"),
+    ("ENABLE_MCP_TARGET", check_market_holidays, "MCP target enabled - market calendar tool available"),
+]
+
+for env_var, tool_func, log_msg in tool_config:
+    if os.environ.get(env_var, "false").lower() == "true":
+        logger.info(log_msg)
+        tools.append(tool_func)
 
 # ============================================================================
 # Agent Configuration
 # ============================================================================
 
-# Update system prompt based on available tools
+# Determine available tools for system prompt
 has_stock_tool = os.environ.get("ENABLE_GATEWAY", "false").lower() == "true"
 has_lambda_tool = os.environ.get("ENABLE_LAMBDA_TARGET", "false").lower() == "true"
 has_mcp_tool = os.environ.get("ENABLE_MCP_TARGET", "false").lower() == "true"
 
-system_prompt = f"""
-You are MarketPulse, an AI investment brief assistant for financial advisors.
+# Build system prompt based on available tools
+base_prompt = """You are MarketPulse, an AI investment brief assistant for financial advisors.
 
-Your role is to help advisors prepare for client meetings by providing:
-{"- Current stock information using the get_stock_price tool" if has_stock_tool else "- Stock information (when tools are available)"}
-{"- Risk assessments using the assess_client_suitability tool" if has_lambda_tool else "- Risk assessments (when tools are available)"}
-{"- Market calendar information using the check_market_holidays tool" if has_mcp_tool else "- Market calendar information (when tools are available)"}
+Your role is to help advisors prepare for client meetings by providing:"""
 
-{"When helping with suitability queries, always retrieve the current stock price first, then assess suitability. Present both together as a concise brief." if has_lambda_tool else ""}
+tool_descriptions = []
+if has_stock_tool:
+    tool_descriptions.append("- Current stock information using the get_stock_price tool")
+if has_lambda_tool:
+    tool_descriptions.append("- Risk assessments using the assess_client_suitability tool")
+if has_mcp_tool:
+    tool_descriptions.append("- Market calendar information using the check_market_holidays tool")
 
-{"When discussing trade timing, check for upcoming market holidays. Alert the advisor to any closures that could affect execution." if has_mcp_tool else ""}
+if not tool_descriptions:
+    tool_descriptions.append("- Stock information (when tools are available)")
+    tool_descriptions.append("- Risk assessments (when tools are available)")
+    tool_descriptions.append("- Market calendar information (when tools are available)")
 
-Always be professional, concise, and focused on actionable insights.
-Risk profiles are: conservative, moderate, or aggressive.
+guidelines = ["Always be professional, concise, and focused on actionable insights."]
+guidelines.append("Risk profiles are: conservative, moderate, or aggressive.")
 
-{"When providing stock prices, always cite the ticker symbol and mention that data is real-time from Finnhub." if has_stock_tool else "In this initial version, you don't have access to live data tools yet. Provide general guidance based on your training data knowledge."}
-"""
+if has_lambda_tool:
+    guidelines.append("When helping with suitability queries, always retrieve the current stock price first, then assess suitability. Present both together as a concise brief.")
+
+if has_mcp_tool:
+    guidelines.append("When discussing trade timing, check for upcoming market holidays. Alert the advisor to any closures that could affect execution.")
+
+if has_stock_tool:
+    guidelines.append("When providing stock prices, always cite the ticker symbol and mention that data is real-time from Finnhub.")
+else:
+    guidelines.append("In this initial version, you don't have access to live data tools yet. Provide general guidance based on your training data knowledge.")
+
+system_prompt = f"{base_prompt}\n" + "\n".join(tool_descriptions) + "\n\n" + "\n".join(guidelines)
 
 # Create the MarketPulse agent
 agent = Agent(

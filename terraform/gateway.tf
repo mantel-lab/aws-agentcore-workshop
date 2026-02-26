@@ -437,7 +437,7 @@ resource "null_resource" "finnhub_http_target" {
         fi
       else
         # Extract target ID from successful creation
-        TARGET_ID=$(echo "$TARGET_OUTPUT" | jq -r '.target.targetId // empty')
+        TARGET_ID=$(echo "$TARGET_OUTPUT" | jq -r '.targetId // .target.targetId // empty')
       fi
       
       # Validate Target ID before saving
