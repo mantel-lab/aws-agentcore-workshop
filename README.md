@@ -129,6 +129,7 @@ aws-agentcore-workshop/
 │   ├── test-stock.py
 │   ├── test-risk.py
 │   ├── test-calendar.py
+│   ├── test-auth.py
 │   └── destroy.sh
 └── docs/                        # Module documentation
     ├── 00-introduction.md

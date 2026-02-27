@@ -78,64 +78,19 @@ resource "null_resource" "build_mcp_image" {
 }
 
 # ============================================================================
-# Cognito User Pool - MCP Server Inbound JWT Auth
+# Cognito Resources for OAuth Authentication
 # ============================================================================
 #
-# MCP Gateway targets MUST use OAuth - GATEWAY_IAM_ROLE is not supported.
-# The Runtime validates incoming JWT Bearer tokens against this Cognito pool.
-# The Gateway receives OAuth tokens via the AgentCore Identity credential
-# provider and sends them as Bearer headers when calling the MCP Runtime.
-
-resource "aws_cognito_user_pool" "mcp_server" {
-  count = var.enable_mcp_target ? 1 : 0
-
-  name = "${local.mcp_server_name}-auth"
-
-  # Machine-to-machine only - no user sign-ups
-  admin_create_user_config {
-    allow_admin_create_user_only = true
-  }
-
-  tags = local.common_tags
-}
-
-# Domain provides the Cognito token endpoint used by the credential provider
-resource "aws_cognito_user_pool_domain" "mcp_server" {
-  count = var.enable_mcp_target ? 1 : 0
-
-  # Must be globally unique; combine name prefix with last 8 digits of account ID
-  domain       = "${local.name_prefix}-mcp-${substr(local.account_id, -8, 8)}"
-  user_pool_id = aws_cognito_user_pool.mcp_server[0].id
-}
-
-# Resource server defines the OAuth scopes the M2M client can request
-resource "aws_cognito_resource_server" "mcp_server" {
-  count = var.enable_mcp_target ? 1 : 0
-
-  identifier   = "mcp-runtime-server"
-  name         = "MCP Runtime Server"
-  user_pool_id = aws_cognito_user_pool.mcp_server[0].id
-
-  scope {
-    scope_name        = "invoke"
-    scope_description = "Invoke MCP server tools via AgentCore Gateway"
-  }
-}
-
-# M2M app client: Gateway uses client credentials to obtain Bearer tokens
-resource "aws_cognito_user_pool_client" "gateway_m2m" {
-  count = var.enable_mcp_target ? 1 : 0
-
-  name         = "${local.mcp_server_name}-gateway-client"
-  user_pool_id = aws_cognito_user_pool.mcp_server[0].id
-
-  generate_secret                      = true
-  allowed_oauth_flows_user_pool_client = true
-  allowed_oauth_flows                  = ["client_credentials"]
-  allowed_oauth_scopes                 = ["mcp-runtime-server/invoke"]
-
-  depends_on = [aws_cognito_resource_server.mcp_server]
-}
+# OAuth 2.0 authentication resources are defined in identity.tf and conditionally
+# created when enable_identity = true. This allows Module 4 to deploy the MCP
+# server without authentication, and Module 6 to add OAuth security on top.
+#
+# See identity.tf for:
+# - aws_cognito_user_pool.mcp_server
+# - aws_cognito_user_pool_domain.mcp_server
+# - aws_cognito_resource_server.mcp_server
+# - aws_cognito_user_pool_client.gateway_m2m
+# - null_resource.mcp_oauth_credential_provider
 
 # ============================================================================
 # IAM Role for MCP Server Runtime
@@ -254,26 +209,31 @@ resource "awscc_bedrockagentcore_runtime" "mcp" {
     LOG_LEVEL = "INFO"
   }
 
-  # Inbound JWT auth: Runtime validates Bearer tokens issued by the Cognito
-  # pool before passing requests to the FastMCP container.
-  authorizer_configuration = {
+  # Inbound JWT auth: Conditionally validate Bearer tokens when enable_identity = true
+  # Module 4: No authorizer (omit field - open access for workshop simplicity)
+  # Module 6: JWT authorizer validates tokens from Cognito before forwarding to FastMCP
+  authorizer_configuration = var.enable_identity ? {
     custom_jwt_authorizer = {
       allowed_clients = [aws_cognito_user_pool_client.gateway_m2m[0].id]
       discovery_url   = "https://cognito-idp.${local.region}.amazonaws.com/${aws_cognito_user_pool.mcp_server[0].id}/.well-known/openid-configuration"
       allowed_scopes  = ["mcp-runtime-server/invoke"]
     }
-  }
+  } : null
 
   tags = local.common_tags
 
+  # Note: When enable_identity=false, Cognito resources have count=0 and are
+  # automatically skipped by Terraform. No need for dynamic depends_on.
   depends_on = [
     aws_iam_role.mcp_runtime,
     aws_iam_role_policy.mcp_ecr_access,
     aws_iam_role_policy.mcp_logs_access,
     time_sleep.mcp_iam_propagation,
     null_resource.build_mcp_image,
+    aws_cognito_user_pool.mcp_server,
     aws_cognito_user_pool_client.gateway_m2m,
     aws_cognito_user_pool_domain.mcp_server,
+    aws_cognito_resource_server.mcp_server,
   ]
 }
 
@@ -295,83 +255,9 @@ resource "awscc_bedrockagentcore_runtime_endpoint" "mcp" {
 # AgentCore Identity - OAuth2 Credential Provider
 # ============================================================================
 #
-# Creates an AgentCore Identity credential provider that stores the Cognito
-# M2M client credentials. The Gateway uses this to obtain JWT tokens and
-# authenticate to the MCP Runtime via Bearer header.
-
-resource "null_resource" "mcp_oauth_credential_provider" {
-  count = (var.enable_gateway && var.enable_mcp_target) ? 1 : 0
-
-  triggers = {
-    user_pool_id  = aws_cognito_user_pool.mcp_server[0].id
-    client_id     = aws_cognito_user_pool_client.gateway_m2m[0].id
-    region        = var.aws_region
-    project_name  = var.project_name
-    environment   = var.environment
-    provider_name = "${local.mcp_server_name}-oauth-provider"
-  }
-
-  provisioner "local-exec" {
-    command = "${path.module}/../scripts/create-mcp-oauth-provider.sh"
-    environment = {
-      PROVIDER_NAME     = "${local.mcp_server_name}-oauth-provider"
-      DISCOVERY_URL     = "https://cognito-idp.${var.aws_region}.amazonaws.com/${aws_cognito_user_pool.mcp_server[0].id}/.well-known/openid-configuration"
-      MCP_CLIENT_ID     = aws_cognito_user_pool_client.gateway_m2m[0].id
-      MCP_CLIENT_SECRET = aws_cognito_user_pool_client.gateway_m2m[0].client_secret
-      SSM_PARAM_NAME    = "/${var.project_name}/${var.environment}/mcp-oauth-provider-arn"
-      AWS_REGION        = var.aws_region
-    }
-  }
-
-  provisioner "local-exec" {
-    when    = destroy
-    command = <<-EOT
-      # Try SSM first; fall back to listing by name if SSM was already cleaned up
-      PROVIDER_ARN=$(aws ssm get-parameter \
-        --name "/${self.triggers.project_name}/${self.triggers.environment}/mcp-oauth-provider-arn" \
-        --query 'Parameter.Value' --output text \
-        --region ${self.triggers.region} 2>/dev/null || echo "")
-
-      PROVIDER_NAME="${self.triggers.provider_name}"
-
-      if [ -z "$PROVIDER_ARN" ] || [ "$PROVIDER_ARN" = "None" ]; then
-        echo "SSM parameter not found - searching for provider by name..."
-        PROVIDER_ARN=$(aws bedrock-agentcore-control list-oauth2-credential-providers \
-          --region ${self.triggers.region} \
-          --query "credentialProviders[?name=='$PROVIDER_NAME'].credentialProviderArn | [0]" \
-          --output text 2>/dev/null || echo "")
-      fi
-
-      if [ -n "$PROVIDER_ARN" ] && [ "$PROVIDER_ARN" != "None" ]; then
-        echo "Deleting OAuth2 credential provider: $PROVIDER_ARN"
-        DELETE_OUTPUT=$(aws bedrock-agentcore-control delete-oauth2-credential-provider \
-          --oauth2-credential-provider-arn "$PROVIDER_ARN" \
-          --region ${self.triggers.region} 2>&1)
-        DELETE_EXIT=$?
-        if [ $DELETE_EXIT -ne 0 ]; then
-          echo "WARNING: Failed to delete OAuth2 credential provider: $DELETE_OUTPUT"
-          echo "You may need to delete it manually:"
-          echo "  aws bedrock-agentcore-control delete-oauth2-credential-provider --oauth2-credential-provider-arn $PROVIDER_ARN --region ${self.triggers.region}"
-        else
-          echo "OAuth2 credential provider deleted successfully"
-        fi
-      else
-        echo "No OAuth2 credential provider found to delete"
-      fi
-
-      aws ssm delete-parameter \
-        --name "/${self.triggers.project_name}/${self.triggers.environment}/mcp-oauth-provider-arn" \
-        --region ${self.triggers.region} 2>/dev/null || true
-    EOT
-  }
-
-  depends_on = [
-    aws_cognito_user_pool.mcp_server,
-    aws_cognito_user_pool_client.gateway_m2m,
-    aws_cognito_user_pool_domain.mcp_server,
-    awscc_bedrockagentcore_runtime_endpoint.mcp,
-  ]
-}
+# OAuth 2.0 credential provider is defined in identity.tf and conditionally
+# created when enable_identity = true.  See identity.tf for:
+# - null_resource.mcp_oauth_credential_provider
 
 # ============================================================================
 # Gateway IAM Policy Update - Allow MCP Runtime Invocation
@@ -408,20 +294,22 @@ resource "aws_iam_role_policy" "gateway_mcp_access" {
 
 # The Gateway needs the MCP server's invocation URL to discover and call tools.
 # URL format: https://bedrock-agentcore.{region}.amazonaws.com/runtimes/{url-encoded-arn}/invocations?qualifier={endpoint-name}
-# MCP targets ONLY support OAUTH - the Gateway fetches a JWT from Cognito via
-# the AgentCore Identity credential provider and sends it as a Bearer token.
+#
+# Module 4 (enable_identity=false): GATEWAY_IAM_ROLE credential type (no authentication)
+# Module 6 (enable_identity=true): OAUTH credential type with JWT Bearer tokens
 resource "null_resource" "mcp_gateway_target" {
   count = (var.enable_gateway && var.enable_mcp_target) ? 1 : 0
 
   triggers = {
-    mcp_runtime_id    = awscc_bedrockagentcore_runtime.mcp[0].id
-    mcp_endpoint      = awscc_bedrockagentcore_runtime_endpoint.mcp[0].name
-    gateway_id        = local.gateway_id
-    project_name      = var.project_name
-    environment       = var.environment
-    region            = var.aws_region
-    account_id        = local.account_id
-    cognito_client_id = aws_cognito_user_pool_client.gateway_m2m[0].id
+    mcp_runtime_id     = awscc_bedrockagentcore_runtime.mcp[0].id
+    mcp_endpoint       = awscc_bedrockagentcore_runtime_endpoint.mcp[0].name
+    gateway_id         = local.gateway_id
+    project_name       = var.project_name
+    environment        = var.environment
+    region             = var.aws_region
+    account_id         = local.account_id
+    enable_identity    = var.enable_identity
+    cognito_client_id  = var.enable_identity ? aws_cognito_user_pool_client.gateway_m2m[0].id : ""
   }
 
   provisioner "local-exec" {
@@ -461,15 +349,37 @@ resource "null_resource" "mcp_gateway_target" {
       else
         echo "Creating MCP_SERVER gateway target..."
 
-        # Retrieve the AgentCore Identity credential provider ARN created earlier
-        OAUTH_PROVIDER_ARN=$(aws ssm get-parameter \
-          --name "/${var.project_name}/${var.environment}/mcp-oauth-provider-arn" \
-          --query 'Parameter.Value' --output text \
-          --region ${var.aws_region})
+        # Module 6: OAuth authentication (requires AgentCore Identity credential provider)
+        # Module 4: IAM role authentication (simpler, no separate OAuth setup)
+        if [ "${var.enable_identity}" = "true" ]; then
+          echo "Using OAuth 2.0 authentication (enable_identity=true)"
+          
+          # Retrieve the AgentCore Identity credential provider ARN created in identity.tf
+          OAUTH_PROVIDER_ARN=$(aws ssm get-parameter \
+            --name "/${var.project_name}/${var.environment}/mcp-oauth-provider-arn" \
+            --query 'Parameter.Value' --output text \
+            --region ${var.aws_region} 2>/dev/null || echo "")
 
-        if [ -z "$OAUTH_PROVIDER_ARN" ] || [ "$OAUTH_PROVIDER_ARN" = "None" ]; then
-          echo "Error: OAuth provider ARN not found in SSM. Run terraform apply again."
-          exit 1
+          if [ -z "$OAUTH_PROVIDER_ARN" ] || [ "$OAUTH_PROVIDER_ARN" = "None" ]; then
+            echo "Error: OAuth provider ARN not found in SSM. Deploy identity.tf first (enable_identity=true)."
+            exit 1
+          fi
+
+          CRED_PROVIDER_JSON="[{
+            \"credentialProviderType\": \"OAUTH\",
+            \"credentialProvider\": {
+              \"oauthCredentialProvider\": {
+                \"providerArn\": \"$OAUTH_PROVIDER_ARN\",
+                \"scopes\": [\"mcp-runtime-server/invoke\"]
+              }
+            }
+          }]"
+        else
+          echo "Using Gateway IAM role authentication (enable_identity=false)"
+          
+          CRED_PROVIDER_JSON="[{
+            \"credentialProviderType\": \"GATEWAY_IAM_ROLE\"
+          }]"
         fi
 
         set +e
@@ -483,15 +393,7 @@ resource "null_resource" "mcp_gateway_target" {
               }
             }
           }" \
-          --credential-provider-configurations "[{
-            \"credentialProviderType\": \"OAUTH\",
-            \"credentialProvider\": {
-              \"oauthCredentialProvider\": {
-                \"providerArn\": \"$OAUTH_PROVIDER_ARN\",
-                \"scopes\": [\"mcp-runtime-server/invoke\"]
-              }
-            }
-          }]" \
+          --credential-provider-configurations "$CRED_PROVIDER_JSON" \
           --region ${var.aws_region} 2>&1)
         TARGET_EXIT=$?
         set -e
@@ -561,6 +463,9 @@ resource "null_resource" "mcp_gateway_target" {
     EOT
   }
 
+  # Note: When enable_identity=false, Cognito resources have count=0 and
+  # null_resource.mcp_oauth_credential_provider doesn't exist. Terraform skips
+  # non-existent dependencies automatically.
   depends_on = [
     null_resource.gateway,
     awscc_bedrockagentcore_runtime_endpoint.mcp,

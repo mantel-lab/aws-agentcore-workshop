@@ -142,6 +142,22 @@ resource "aws_iam_role_policy" "gateway_lambda_access" {
 }
 
 # ============================================================================
+# IAM Propagation Wait
+# ============================================================================
+
+# Wait for IAM policies to propagate before registering Gateway target
+resource "time_sleep" "lambda_iam_propagation" {
+  count = (var.enable_gateway && var.enable_lambda_target) ? 1 : 0
+
+  create_duration = "30s"
+
+  depends_on = [
+    aws_lambda_permission.allow_gateway,
+    aws_iam_role_policy.gateway_lambda_access,
+  ]
+}
+
+# ============================================================================
 # Lambda Gateway Target Registration
 # ============================================================================
 
@@ -283,7 +299,6 @@ resource "null_resource" "lambda_gateway_target" {
   depends_on = [
     null_resource.gateway,
     aws_lambda_function.risk_scorer,
-    aws_lambda_permission.allow_gateway,
-    aws_iam_role_policy.gateway_lambda_access,
+    time_sleep.lambda_iam_propagation,
   ]
 }
