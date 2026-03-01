@@ -16,6 +16,7 @@ Module 7: Observability with distributed tracing
 
 import os
 import logging
+from datetime import datetime
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 from strands import Agent
 from strands.models import BedrockModel
@@ -32,6 +33,19 @@ model_id = os.environ.get("BEDROCK_MODEL_ID", "anthropic.claude-3-5-sonnet-20241
 model = BedrockModel(
     model_id=model_id
 )
+
+# Check if memory is enabled
+enable_memory = os.environ.get("ENABLE_MEMORY", "false").lower() == "true"
+memory_id = os.environ.get("MEMORY_ID", "")
+aws_region = os.environ.get("AWS_REGION", "ap-southeast-2")
+
+# Import memory components if enabled
+if enable_memory and memory_id:
+    from bedrock_agentcore.memory.integrations.strands.config import AgentCoreMemoryConfig
+    from bedrock_agentcore.memory.integrations.strands.session_manager import AgentCoreMemorySessionManager
+    logger.info(f"Memory enabled - using Memory ID: {memory_id}")
+else:
+    logger.info("Memory disabled")
 
 # ============================================================================
 # Tool Configuration
@@ -158,12 +172,18 @@ else:
 
 system_prompt = f"{base_prompt}\n" + "\n".join(tool_descriptions) + "\n\n" + "\n".join(guidelines)
 
-# Create the MarketPulse agent
-agent = Agent(
-    model=model,
-    tools=tools,  # Tools added based on enabled modules
-    system_prompt=system_prompt
-)
+# When memory is disabled, create agent at module level (stateless agent)
+# When memory is enabled, agent will be created per-request with session_manager
+agent_instance = None
+
+if not enable_memory:
+    # Create stateless agent (no memory)
+    agent_instance = Agent(
+        model=model,
+        tools=tools,
+        system_prompt=system_prompt
+    )
+    logger.info("Agent created without memory (stateless mode)")
 
 @app.entrypoint
 def marketpulse_agent(payload):
@@ -173,13 +193,51 @@ def marketpulse_agent(payload):
     AgentCore Runtime will call this function with the request payload.
     The payload contains a 'prompt' field with the user's query.
     
+    Supports memory integration when ENABLE_MEMORY=true:
+    - actor_id: Identifies the advisor (defaults to "advisor_001")
+    - session_id: Identifies the conversation session (defaults to "default_session")
+    
     Returns the agent's response as a string.
     """
     user_input = payload.get("prompt")
     logger.info(f"MarketPulse received query: {user_input}")
     logger.info(f"Tools available: {len(tools)}")
     
-    response = agent(user_input)
+    # Use module-level agent if memory is disabled
+    if not enable_memory:
+        response = agent_instance(user_input)
+        return response.message['content'][0]['text']
+    
+    # Memory-enabled path: Create agent with session manager per request
+    # Extract memory context from payload (or use defaults for workshop)
+    actor_id = payload.get("actor_id", "advisor_001")
+    session_id = payload.get("session_id", "default_session")
+    
+    logger.info(f"Memory enabled - actor_id: {actor_id}, session_id: {session_id}")
+    
+    # Configure memory for this request
+    memory_config = AgentCoreMemoryConfig(
+        memory_id=memory_id,
+        session_id=session_id,
+        actor_id=actor_id
+    )
+    
+    # Create session manager
+    session_manager = AgentCoreMemorySessionManager(
+        agentcore_memory_config=memory_config,
+        region_name=aws_region
+    )
+    
+    # Create agent with memory
+    agent_with_memory = Agent(
+        model=model,
+        tools=tools,
+        system_prompt=system_prompt,
+        session_manager=session_manager
+    )
+    
+    # Invoke agent (session manager handles memory read/write)
+    response = agent_with_memory(user_input)
     
     # Extract text response from Strands agent
     return response.message['content'][0]['text']

@@ -83,120 +83,156 @@ For MarketPulse, we'll store:
 
 ## Step 1: Update Agent Code with Memory
 
-Edit `agent/app.py` to integrate memory:
+The agent code in `agent/app.py` already includes memory integration. Here's how it works:
 
 ```python
-from bedrock_agentcore import BedrockAgentCoreApp
-from strands_agents import Agent
-from strands_agents.memory import Memory
+from bedrock_agentcore.runtime import BedrockAgentCoreApp
+from strands import Agent
+from strands.models import BedrockModel
 
-agent = Agent(
-    name="MarketPulse",
-    model="anthropic.claude-sonnet-4-5-20250929-v1:0",
-    instructions="""
-    You are MarketPulse, an AI investment brief assistant.
-    
-    Memory Usage:
-    - At session start, check memory for advisor profile and client list
-    - When clients are mentioned, store their risk profiles for future reference
-    - When tickers are discussed, add them to the advisor's watchlist
-    - At session end, update memory with any new information
-    
-    Always acknowledge when you're recalling information from memory.
+# Check if memory is enabled via environment variable
+enable_memory = os.environ.get("ENABLE_MEMORY", "false").lower() == "true"
+memory_id = os.environ.get("MEMORY_ID", "")
+aws_region = os.environ.get("AWS_REGION", "ap-southeast-2")
+
+# Import memory components only when enabled
+if enable_memory and memory_id:
+    from bedrock_agentcore.memory.integrations.strands.config import AgentCoreMemoryConfig
+    from bedrock_agentcore.memory.integrations.strands.session_manager import AgentCoreMemorySessionManager
+    logger.info(f"Memory enabled - using Memory ID: {memory_id}")
+
+# When memory is disabled: Create stateless agent once at module level
+# When memory is enabled: Create agent per-request with session manager
+agent_instance = None
+
+if not enable_memory:
+    agent_instance = Agent(
+        model=model,
+        tools=tools,
+        system_prompt=system_prompt
+    )
+    logger.info("Agent created without memory (stateless mode)")
+
+@app.entrypoint
+def marketpulse_agent(payload):
     """
-)
-
-# Enable memory
-memory = Memory(
-    namespace="marketpulse",
-    ttl_days=90  # Retain for 90 days
-)
-
-@agent.on_session_start
-async def load_context(session):
-    """Load advisor context at session start."""
-    context = await memory.get("advisor_context") or {}
-    if context:
-        advisor_name = context.get("advisor", {}).get("name")
-        client_count = len(context.get("clients", {}))
-        session.context["memory_loaded"] = True
-        session.context["advisor_name"] = advisor_name
-        session.context["client_count"] = client_count
-        return f"Welcome back, {advisor_name}. You have {client_count} clients in your portfolio."
-    else:
-        session.context["memory_loaded"] = False
-        return "Welcome to MarketPulse. This is a new session."
-
-@agent.on_session_end
-async def save_context(session):
-    """Save updated context at session end."""
-    if session.context.get("advisor_name"):
-        await memory.set("advisor_context", session.context["advisor_data"])
-
-@agent.tool
-def register_client(name: str, risk_profile: str) -> dict:
-    """
-    Register a new client in the advisor's portfolio.
+    Agent invocation entrypoint.
     
-    Args:
-        name: Client's full name
-        risk_profile: conservative, moderate, or aggressive
+    Supports memory integration when ENABLE_MEMORY=true:
+    - actor_id: Identifies the advisor (for memory isolation)
+    - session_id: Identifies the conversation session
     
-    Returns:
-        dict: Confirmation of registration
+    The AgentCoreMemorySessionManager handles all memory operations:
+    - Loads memory context before agent processing
+    - Stores new facts after agent responds
     """
-    pass  # Gateway implementation
-
-@agent.tool
-def get_client_profile(name: str) -> dict:
-    """
-    Retrieve a client's profile from memory.
+    user_input = payload.get("prompt")
     
-    Args:
-        name: Client's full name
+    # Use stateless agent if memory is disabled
+    if not enable_memory:
+        response = agent_instance(user_input)
+        return response.message['content'][0]['text']
     
-    Returns:
-        dict: Client profile with risk profile and watchlist
-    """
-    pass  # Gateway implementation
-
-# Existing tools remain...
+    # Memory-enabled path: Create agent with session manager per request
+    actor_id = payload.get("actor_id", "advisor_001")
+    session_id = payload.get("session_id", "default_session")
+    
+    # Configure memory for this request
+    memory_config = AgentCoreMemoryConfig(
+        memory_id=memory_id,
+        session_id=session_id,
+        actor_id=actor_id
+    )
+    
+    # Create session manager (handles read/write automatically)
+    session_manager = AgentCoreMemorySessionManager(
+        agentcore_memory_config=memory_config,
+        region_name=aws_region
+    )
+    
+    # Create agent with memory
+    agent_with_memory = Agent(
+        model=model,
+        tools=tools,
+        system_prompt=system_prompt,
+        session_manager=session_manager
+    )
+    
+    # Invoke agent - session manager handles memory automatically
+    response = agent_with_memory(user_input)
+    return response.message['content'][0]['text']
 ```
 
-## Step 2: Configure Terraform
+**Key points:**
+
+- **AgentCoreMemorySessionManager** handles all memory operations automatically
+- Memory is loaded when the agent is created (before processing the prompt)
+- New facts are stored when the agent completes its response
+- **actor_id** provides memory isolation between advisors
+- **session_id** groups related conversations together
+
+**No manual memory management needed** - the session manager handles it all.
+
+## Step 2: Enable Memory in Terraform
 
 Edit `terraform/terraform.tfvars`:
 
 ```hcl
 # Feature Flags (Enable Memory)
-enable_runtime = true
-enable_gateway = true
-enable_http_target = true
+enable_gateway       = true
+enable_http_target   = true
 enable_lambda_target = true
-enable_mcp_target = true
-enable_memory = true
-enable_identity = false
+enable_mcp_target    = true
+enable_memory        = true   # <-- Set to true
+enable_identity      = false
 enable_observability = false
-
-# Memory configuration
-memory_retention_days = 90
-memory_encryption_enabled = true
 ```
 
-## Step 3: Rebuild and Deploy
+**What this enables:**
 
-Rebuild the agent with memory support:
+- Creates an AgentCore Memory resource with two strategies:
+  - **User Preference Strategy** for advisor settings (namespace: `/advisors/{actorId}/preferences/`)
+  - **Semantic Strategy** for client profiles (namespace: `/clients/{actorId}/`)
+- Event expiry duration: 90 days
+- IAM permissions for the agent to read/write memory
+- Environment variables passed to the agent container:
+  - `ENABLE_MEMORY=true`
+  - `MEMORY_ID=<memory-arn>`
+
+## Step 3: Deploy with Terraform
+
+Rebuild the agent to include memory integration, then deploy:
 
 ```bash
+# Rebuild the agent container with memory support
 ./scripts/build-agent.sh
-```
 
-Deploy with Terraform:
-
-```bash
+# Deploy infrastructure changes
 cd terraform
-terraform apply
+terraform plan   # Review changes
+terraform apply  # Deploy
+
+# Wait 30 seconds for IAM permissions to propagate
+sleep 30
 ```
+
+**What Terraform deploys:**
+
+1. **AgentCore Memory resource** (`awscc_bedrockagentcore_memory.advisor_memory`)
+   - Memory ID (ARN) is output and passed to agent as `MEMORY_ID` env var
+   - Two memory strategies configured (AdvisorPreferences, ClientProfiles)
+   - Event expiry set to 90 days
+
+2. **IAM policy** (`aws_iam_role_policy.agent_memory_access`)
+   - Grants agent runtime permissions:
+     - `InvokeMemory`, `GetMemory`, `ListMemories`
+     - `CreateEvent`, `GetEvent`, `ListEvents`, `DeleteEvent`
+   - Scoped to the specific memory resource ARN
+
+3. **Agent container** rebuilt with:
+   - Memory integration dependencies
+   - `ENABLE_MEMORY=true` environment variable
+   - `MEMORY_ID` set to the memory resource ARN
 
 **What Terraform creates:**
 
@@ -218,92 +254,116 @@ memory_kms_key_id = "arn:aws:kms:ap-southeast-2:123456789012:key/xyz789"
 
 ## Step 4: Test Memory Persistence
 
-**Session 1: Register client**
+Use the provided test script to verify memory works:
 
 ```bash
-python scripts/test-agent.py "I'm advisor James Wilson. I have a new client, Sarah Chen. She's a conservative investor interested in Apple."
+cd scripts
+python test-memory.py
 ```
 
-**Expected response:**
+**What the test does:**
 
+**Session 1: Store client information**
 ```
-Agent Response:
-===============
+Prompt: "I have a new client named Sarah Chen, 45 years old, conservative investor interested in tech."
 
-Client Registration Confirmed
-
-Client: Sarah Chen
-Risk Profile: Conservative
-Initial Watchlist: AAPL
-
-I've stored Sarah's profile in my memory. In future sessions, I'll remember 
-her risk profile and can provide tailored investment advice.
-
-Current Apple Status:
-Price: $184.25
-Suitability: Clear Match ✓
-Apple's stable performance aligns well with Sarah's conservative profile.
+Expected Response:
+- Agent acknowledges the information
+- Stores client details in memory under /clients/{actor_id}/ namespace
 ```
 
-**Session 2: Recall client**
+**Session 2: Recall client information (same session_id)**
+```
+Prompt: "What's the latest on Apple for Sarah?"
 
-Start a new session (new terminal window or restart script):
+Expected Response:
+- Agent recalls Sarah's name and risk profile WITHOUT being told again
+- Calls get_stock_price("AAPL")
+- Calls assess_client_suitability("AAPL", "conservative")
+- Provides tailored response: "Checking Apple for Sarah Chen (conservative)... Price: $X.XX. Clear match for her profile."
+```
+
+**Key verification:**
+✓ Agent remembers "Sarah Chen" without repetition  
+✓ Agent recalls "conservative" risk profile  
+✓ Memory persists across separate invocations
+
+**Test output shows:**
+```
+Test 1: Providing client details
+----------------------------------------------------------
+✓ Agent response received
+
+Test 2: Recalling client details (without repeating)
+----------------------------------------------------------
+✓ Agent recalled Sarah Chen's profile from memory
+✓ Memory persistence verified
+```
+
+## Step 5: Inspect Memory Storage
+
+Check the deployed memory resource:
 
 ```bash
-python scripts/test-agent.py "What's the latest on Apple for Sarah?"
+# Get memory resource details
+cd terraform
+terraform output memory_id
+
+# View memory configuration
+aws bedrock-agentcore get-memory \
+    --memory-id $(terraform output -raw memory_id) \
+    --region ap-southeast-2
 ```
 
-**Expected response:**
+**Expected output:**
+
+```json
+{
+  "memory": {
+## Understanding Memory Architecture
+
+**How memory flows through the system:**
 
 ```
-Agent Response:
-===============
-
-Welcome back, James. Checking on Apple for Sarah Chen.
-
-Client Profile (from memory):
-- Risk Profile: Conservative
-- Watchlist: AAPL
-
-Current Apple Status:
-Price: $184.25
-Day Range: $182.50 - $185.10
-Change: +$0.75 (+0.41%)
-
-Suitability: Clear Match ✓
-
-Apple continues to be appropriate for Sarah's conservative portfolio. 
-The stock shows stable performance with modest positive movement today.
+┌─────────────────────────────────────────────────────────────┐
+│ test-memory.py                                              │
+│   • Calls InvokeAgentRuntime with actor_id + session_id    │
+└──────────────────────┬──────────────────────────────────────┘
+                       ↓
+┌─────────────────────────────────────────────────────────────┐
+│ AgentCore Runtime                                           │
+│   • Receives request, forwards to agent container           │
+│   • Injects ENABLE_MEMORY=true, MEMORY_ID env vars         │
+└──────────────────────┬──────────────────────────────────────┘
+                       ↓
+┌─────────────────────────────────────────────────────────────┐
+│ agent/app.py: marketpulse_agent()                          │
+│   1. Read actor_id, session_id from payload                │
+│   2. Create AgentCoreMemoryConfig(memory_id, session_id,   │
+│      actor_id)                                              │
+│   3. Create AgentCoreMemorySessionManager(config)          │
+│      ├─→ On init: Load existing events from memory         │
+│      └─→ Inject context into agent                         │
+│   4. Create Agent(session_manager=session_manager)         │
+│   5. Invoke agent with user prompt                         │
+│   6. Session manager stores new facts to memory            │
+└──────────────────────┬──────────────────────────────────────┘
+                       ↓
+┌─────────────────────────────────────────────────────────────┐
+│ AgentCore Memory Service                                    │
+│   • DynamoDB table stores events                            │
+│   • Encrypts data at rest with KMS                          │
+│   • Namespaces provide isolation: /clients/{actorId}/      │
+│   • Events expire after 90 days (TTL)                       │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-**Key observation:** The agent remembered Sarah's name, risk profile, and ticker without being told again.
+**Key components:**
 
-## Step 5: Test Watchlist Management
-
-Add more tickers:
-
-```bash
-python scripts/test-agent.py "Sarah is also interested in Microsoft. Can you add it to her watchlist?"
-```
-
-Check watchlist:
-
-```bash
-python scripts/test-agent.py "What stocks are on Sarah's watchlist?"
-```
-
-**Expected response:**
-
-```
-Agent Response:
-===============
-
-Sarah Chen's Watchlist:
-
-1. AAPL - Apple Inc.
-   Current: $184.25
-   Suitability: Clear Match ✓
-
+1. **AgentCoreMemoryConfig**: Configuration for memory access (memory_id, session_id, actor_id)
+2. **AgentCoreMemorySessionManager**: Handles automatic read/write of memory during agent lifecycle
+3. **Memory Strategies**: Define how events are indexed (user_preference vs semantic)
+4. **Namespaces**: Provide isolation with `{actorId}` placeholder for automatic scoping
 2. MSFT - Microsoft Corporation
    Current: $425.80
    Suitability: Clear Match ✓
@@ -373,40 +433,106 @@ memory = Memory(namespace="marketpulse", user_id="advisor_james")
 
 ## Verification Checklist
 
-- [ ] DynamoDB table created
-- [ ] KMS encryption key provisioned
-- [ ] Agent rebuilt with memory integration
-- [ ] Session 1 stores client data
-- [ ] Session 2 recalls client data
-- [ ] Watchlist persists across sessions
-- [ ] Memory encrypted in DynamoDB
+After completing this module, verify:
+
+- [ ] Memory resource created: `terraform output memory_id` shows ARN
+- [ ] Agent container rebuilt with memory integration
+- [ ] `ENABLE_MEMORY=true` environment variable set (check agent logs)
+- [ ] IAM permissions granted (wait 30s after `terraform apply`)
+- [ ] Test Session 1 completes successfully (stores client details)
+- [ ] Test Session 2 completes successfully (recalls client details)
+- [ ] Agent logs show: `[INFO] Memory enabled - actor_id: xxx, session_id: xxx`
+- [ ] Memory status is ACTIVE: `aws bedrock-agentcore get-memory` shows `"status": "ACTIVE"`
+
+**If any step fails, review the Common Issues section above.**
 
 ## Common Issues
 
-### "Memory not found" on recall
+### "AccessDenied: CreateEvent" Error
 
-**Cause:** TTL expired or memory namespace mismatch.
+**Cause:** IAM permissions haven't propagated yet.
 
-**Solution:** Check memory configuration:
-```python
-# Ensure namespace matches across sessions
-memory = Memory(namespace="marketpulse")
+**Solution:** 
+```bash
+# Wait 30 seconds after terraform apply
+sleep 30
+
+# Then retry the test
+python scripts/test-memory.py
 ```
 
-### High latency on memory retrieval
+**Why this happens:** AWS IAM changes take 10-30 seconds to propagate globally. The agent runtime might try to write to memory before the new permissions are active.
 
-**Cause:** DynamoDB read capacity insufficient.
+---
 
-**Solution:** Increase DynamoDB provisioned capacity in Terraform.
+### "ValidationException: session_id too short"
 
-### Memory not updating
+**Cause:** Session ID must be at least 33 characters.
 
-**Cause:** Session end hook not firing.
+**Solution:**
+```python
+# Bad (too short):
+session_id = "session-123"
 
-**Solution:** Ensure `@agent.on_session_end` is called:
+# Good (33+ characters):
+session_id = f"memory-test-session-{uuid.uuid4()}"  # 48 chars
+```
+
+**Why this happens:** AWS enforces minimum length to ensure UUIDs or cryptographically random IDs are used, preventing collisions.
+
+---
+
+### Agent doesn't recall previous session
+
+**Cause:** Different `session_id` used between invocations.
+
+**Solution:** Use the same `session_id` for related conversations:
+```python
+# Session 1:
+invoke_agent(session_id="session-abc123...")
+
+# Session 2 (same session):
+invoke_agent(session_id="session-abc123...")  # Same ID
+```
+
+---
+
+### Agent recalls wrong advisor's data
+
+**Cause:** Same `actor_id` used for different advisors, or namespace misconfiguration.
+
+**Solution:** 
+- Use unique `actor_id` per advisor: `advisor-james`, `advisor-karen`
+- Verify namespace has `{actorId}` placeholder in Terraform
+- Check agent logs to confirm correct actor_id:
+  ```bash
+  aws logs tail /aws/bedrock-agentcore/runtime/marketpulse_workshop_dev_agent
+  # Look for: [INFO] Memory enabled - actor_id: advisor-xxx
+  ```
+
+---
+
+### Memory latency > 2 seconds
+
+**Cause:** Large number of events in namespace (semantic search over thousands of events).
+
+**Solution:** 
+- Reduce `event_expiry_duration` if 90 days is too long
+- Use `user_preference_memory_strategy` for structured data (faster than semantic)
+- Implement periodic summarisation in production
+
+---
+
+### Events not expiring after 90 days
+
+**Cause:** AgentCore Memory handles TTL internally (not visible as DynamoDB TTL attribute).
+
+**Solution:** This is expected behaviour. Check `event_expiry_duration` in memory config:
 ```bash
-# Check agent logs
-aws logs tail /aws/bedrock-agentcore/runtime/marketpulse --follow
+aws bedrock-agentcore get-memory \
+    --memory-id $(cd terraform && terraform output -raw memory_id) \
+    | jq '.memory.eventExpiryDuration'
+# Should output: 90
 ```
 
 ## FSI Relevance: Memory and Compliance

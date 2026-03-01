@@ -123,6 +123,35 @@ output "mcp_target_configured" {
 }
 
 # ============================================================================
+# AgentCore Memory (Module 5)
+# ============================================================================
+
+output "memory_id" {
+  description = "ID of the AgentCore Memory"
+  value       = var.enable_memory ? awscc_bedrockagentcore_memory.advisor_memory[0].memory_id : null
+}
+
+output "memory_arn" {
+  description = "ARN of the AgentCore Memory"
+  value       = var.enable_memory ? awscc_bedrockagentcore_memory.advisor_memory[0].memory_arn : null
+}
+
+output "memory_name" {
+  description = "Name of the AgentCore Memory"
+  value       = var.enable_memory ? awscc_bedrockagentcore_memory.advisor_memory[0].name : null
+}
+
+output "memory_status" {
+  description = "Status of the AgentCore Memory"
+  value       = var.enable_memory ? awscc_bedrockagentcore_memory.advisor_memory[0].status : null
+}
+
+output "memory_enabled" {
+  description = "Whether AgentCore Memory is enabled"
+  value       = var.enable_memory
+}
+
+# ============================================================================
 # Workshop Progress
 # ============================================================================
 

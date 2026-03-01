@@ -231,6 +231,9 @@ resource "awscc_bedrockagentcore_runtime" "agent" {
     ENABLE_GATEWAY       = var.enable_gateway ? "true" : "false"
     ENABLE_LAMBDA_TARGET = var.enable_lambda_target ? "true" : "false"
     ENABLE_MCP_TARGET    = var.enable_mcp_target ? "true" : "false"
+    ENABLE_MEMORY        = var.enable_memory ? "true" : "false"
+    MEMORY_ID            = var.enable_memory ? awscc_bedrockagentcore_memory.advisor_memory[0].memory_id : ""
+    AWS_REGION           = var.aws_region
   }
 
   tags = local.common_tags

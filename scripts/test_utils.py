@@ -86,6 +86,8 @@ def invoke_agent(
     prompt: str,
     session_prefix: str = "test-session",
     region: str = "ap-southeast-2",
+    actor_id: str | None = None,
+    session_id_override: str | None = None,
 ) -> dict[str, Any]:
     """
     Invoke the AgentCore Runtime with a prompt.
@@ -96,6 +98,8 @@ def invoke_agent(
         prompt: User prompt to send to agent
         session_prefix: Prefix for session ID (helps identify test type in logs)
         region: AWS region
+        actor_id: Actor ID for memory (optional, used when memory is enabled)
+        session_id_override: Explicit session ID for memory persistence (optional)
 
     Returns:
         Agent response dictionary with keys:
@@ -106,12 +110,25 @@ def invoke_agent(
     """
     client = boto3.client("bedrock-agentcore", region_name=region)
 
+    # Use provided session_id or generate one
     # Minimum session ID length required by AgentCore Runtime is 33 characters
-    session_id = f"{session_prefix}-{uuid.uuid4()}"
+    if session_id_override:
+        session_id = session_id_override
+    else:
+        session_id = f"{session_prefix}-{uuid.uuid4()}"
 
-    payload = json.dumps({"prompt": prompt}).encode()
+    # Build payload with optional memory fields
+    payload_dict = {"prompt": prompt}
+    if actor_id:
+        payload_dict["actor_id"] = actor_id
+    if session_id_override:
+        payload_dict["session_id"] = session_id_override
+
+    payload = json.dumps(payload_dict).encode()
 
     print(f"  Session ID: {session_id}")
+    if actor_id:
+        print(f"  Actor ID: {actor_id}")
     print()
 
     response = client.invoke_agent_runtime(

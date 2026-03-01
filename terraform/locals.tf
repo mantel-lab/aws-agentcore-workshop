@@ -15,6 +15,7 @@ locals {
   lambda_function_name    = "${local.name_prefix}-risk-scorer"
   mcp_server_name         = "${local.name_prefix}-mcp-server" # used for IAM roles, log groups (hyphens OK)
   memory_namespace        = "${local.name_prefix}-memory"
+  memory_name             = replace("${local.name_prefix}_memory", "-", "_") # Memory names must use underscores
   ecr_repository_name     = "${local.name_prefix}-agent"
   ecr_mcp_repository_name = "${local.name_prefix}-mcp-server"
 
