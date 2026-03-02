@@ -2,6 +2,15 @@
 # Outputs for workshop progression and testing
 
 # ============================================================================
+# Configuration
+# ============================================================================
+
+output "aws_region" {
+  description = "AWS region where resources are deployed"
+  value       = var.aws_region
+}
+
+# ============================================================================
 # ECR Repository
 # ============================================================================
 
@@ -47,6 +56,11 @@ output "agent_endpoint_name" {
 # ============================================================================
 # AgentCore Gateway (Module 2+)
 # ============================================================================
+
+output "gateway_configured" {
+  description = "Whether the Gateway is enabled"
+  value       = var.enable_gateway
+}
 
 output "gateway_id" {
   description = "ID of the AgentCore Gateway"

@@ -69,13 +69,13 @@ For MarketPulse, we'll store:
             "name": "Sarah Chen",
             "risk_profile": "conservative",
             "goals": ["retirement", "capital_preservation"],
-            "watchlist": ["AAPL", "MSFT"]
+            "watchlist": ["BHP.AX", "CBA.AX"]
         },
         "michael_rodriguez": {
             "name": "Michael Rodriguez",
             "risk_profile": "aggressive",
             "goals": ["growth", "capital_appreciation"],
-            "watchlist": ["TSLA", "NVDA"]
+            "watchlist": ["FMG.AX", "ZIP.AX"]
         }
     }
 }
@@ -278,8 +278,8 @@ Prompt: "What's the latest on Apple for Sarah?"
 
 Expected Response:
 - Agent recalls Sarah's name and risk profile WITHOUT being told again
-- Calls get_stock_price("AAPL")
-- Calls assess_client_suitability("AAPL", "conservative")
+- Calls get_stock_price("BHP.AX")
+- Calls assess_client_suitability("BHP.AX", "conservative")
 - Provides tailored response: "Checking Apple for Sarah Chen (conservative)... Price: $X.XX. Clear match for her profile."
 ```
 
@@ -364,7 +364,7 @@ aws bedrock-agentcore get-memory \
 2. **AgentCoreMemorySessionManager**: Handles automatic read/write of memory during agent lifecycle
 3. **Memory Strategies**: Define how events are indexed (user_preference vs semantic)
 4. **Namespaces**: Provide isolation with `{actorId}` placeholder for automatic scoping
-2. MSFT - Microsoft Corporation
+2. CBA.AX - Commonwealth Bank
    Current: $425.80
    Suitability: Clear Match ✓
 

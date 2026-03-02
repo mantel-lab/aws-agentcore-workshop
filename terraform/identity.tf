@@ -109,11 +109,11 @@ resource "null_resource" "mcp_oauth_credential_provider" {
   count = (var.enable_gateway && var.enable_mcp_target && var.enable_identity) ? 1 : 0
 
   triggers = {
-    user_pool_id  = aws_cognito_user_pool.mcp_server[0].id
-    client_id     = aws_cognito_user_pool_client.gateway_m2m[0].id
-    region        = var.aws_region
-    project_name  = var.project_name
-    environment   = var.environment
+    user_pool_id = aws_cognito_user_pool.mcp_server[0].id
+    client_id    = aws_cognito_user_pool_client.gateway_m2m[0].id
+    region       = var.aws_region
+    project_name = var.project_name
+    environment  = var.environment
   }
 
   provisioner "local-exec" {

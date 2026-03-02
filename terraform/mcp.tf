@@ -301,15 +301,15 @@ resource "null_resource" "mcp_gateway_target" {
   count = (var.enable_gateway && var.enable_mcp_target) ? 1 : 0
 
   triggers = {
-    mcp_runtime_id     = awscc_bedrockagentcore_runtime.mcp[0].id
-    mcp_endpoint       = awscc_bedrockagentcore_runtime_endpoint.mcp[0].name
-    gateway_id         = local.gateway_id
-    project_name       = var.project_name
-    environment        = var.environment
-    region             = var.aws_region
-    account_id         = local.account_id
-    enable_identity    = var.enable_identity
-    cognito_client_id  = var.enable_identity ? aws_cognito_user_pool_client.gateway_m2m[0].id : ""
+    mcp_runtime_id    = awscc_bedrockagentcore_runtime.mcp[0].id
+    mcp_endpoint      = awscc_bedrockagentcore_runtime_endpoint.mcp[0].name
+    gateway_id        = local.gateway_id
+    project_name      = var.project_name
+    environment       = var.environment
+    region            = var.aws_region
+    account_id        = local.account_id
+    enable_identity   = var.enable_identity
+    cognito_client_id = var.enable_identity ? aws_cognito_user_pool_client.gateway_m2m[0].id : ""
   }
 
   provisioner "local-exec" {

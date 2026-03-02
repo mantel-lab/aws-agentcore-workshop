@@ -8,7 +8,7 @@ In a production FSI system, this would plug into proprietary risk models.
 For the workshop, a rule-based matrix illustrates the concept clearly.
 
 Input:
-    ticker:       Stock ticker symbol (e.g., AAPL, TSLA)
+    ticker:       Stock ticker symbol (e.g., BHP.AX, CBA.AX)
     risk_profile: Client profile - "conservative", "moderate", or "aggressive"
 
 Output:
@@ -28,20 +28,21 @@ logger.setLevel(logging.INFO)
 # ---------------------------------------------------------------------------
 # Volatility classification
 # Simplified for workshop clarity - production systems use rolling std dev
+# ASX-listed companies for Australian financial advisors
 # ---------------------------------------------------------------------------
 VOLATILITY_MAP: dict[str, str] = {
-    "AAPL": "low",
-    "MSFT": "low",
-    "BRK.B": "low",
-    "JNJ": "low",
-    "GOOGL": "medium",
-    "AMZN": "medium",
-    "META": "medium",
-    "V": "low",
-    "TSLA": "high",
-    "NVDA": "high",
-    "AMD": "high",
-    "COIN": "high",
+    "BHP.AX": "low",
+    "CBA.AX": "low",
+    "WBC.AX": "low",
+    "CSL.AX": "low",
+    "WES.AX": "low",
+    "RIO.AX": "medium",
+    "WOW.AX": "medium",
+    "TLS.AX": "medium",
+    "FMG.AX": "high",
+    "A2M.AX": "high",
+    "ZIP.AX": "high",
+    "LYC.AX": "high",
 }
 
 # ---------------------------------------------------------------------------

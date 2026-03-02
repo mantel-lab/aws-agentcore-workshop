@@ -226,15 +226,31 @@ resource "awscc_bedrockagentcore_runtime" "agent" {
   }
 
   # Environment variables - must be at top level, not in container_configuration
-  environment_variables = {
-    BEDROCK_MODEL_ID     = var.bedrock_model_id
-    ENABLE_GATEWAY       = var.enable_gateway ? "true" : "false"
-    ENABLE_LAMBDA_TARGET = var.enable_lambda_target ? "true" : "false"
-    ENABLE_MCP_TARGET    = var.enable_mcp_target ? "true" : "false"
-    ENABLE_MEMORY        = var.enable_memory ? "true" : "false"
-    MEMORY_ID            = var.enable_memory ? awscc_bedrockagentcore_memory.advisor_memory[0].memory_id : ""
-    AWS_REGION           = var.aws_region
-  }
+  environment_variables = merge(
+    {
+      BEDROCK_MODEL_ID     = var.bedrock_model_id
+      ENABLE_GATEWAY       = var.enable_gateway ? "true" : "false"
+      ENABLE_LAMBDA_TARGET = var.enable_lambda_target ? "true" : "false"
+      ENABLE_MCP_TARGET    = var.enable_mcp_target ? "true" : "false"
+      ENABLE_MEMORY        = var.enable_memory ? "true" : "false"
+      MEMORY_ID            = var.enable_memory ? awscc_bedrockagentcore_memory.advisor_memory[0].memory_id : ""
+      AWS_REGION           = var.aws_region
+    },
+    var.enable_observability ? {
+      # OpenTelemetry configuration for X-Ray tracing
+      AGENT_OBSERVABILITY_ENABLED          = "true"
+      OTEL_PYTHON_DISTRO                   = "aws_distro"
+      OTEL_PYTHON_CONFIGURATOR             = "aws_configurator"
+      OTEL_TRACES_EXPORTER                 = "otlp"
+      OTEL_METRICS_EXPORTER                = "otlp"
+      OTEL_EXPORTER_OTLP_PROTOCOL          = "http/protobuf"
+      OTEL_AWS_APPLICATION_SIGNALS_ENABLED = "true"
+      OTEL_SERVICE_NAME                    = local.agent_name
+      OTEL_RESOURCE_ATTRIBUTES             = "service.name=${local.agent_name},deployment.environment=${var.environment}"
+      OTEL_TRACES_SAMPLER                  = "always_on"
+      OTEL_PROPAGATORS                     = "tracecontext,baggage,xray"
+    } : {}
+  )
 
   tags = local.common_tags
 
@@ -244,6 +260,7 @@ resource "awscc_bedrockagentcore_runtime" "agent" {
     aws_iam_role_policy.agent_ecr_access,
     aws_iam_role_policy.agent_logs_access,
     aws_iam_role_policy.agent_gateway_access,
+    aws_iam_role_policy.agent_xray_access,
     time_sleep.iam_propagation,
     null_resource.build_agent_image
   ]

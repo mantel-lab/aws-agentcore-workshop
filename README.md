@@ -6,7 +6,7 @@ A hands-on workshop for FSI engineering teams to learn AWS Bedrock AgentCore by 
 
 MarketPulse is a conversational assistant for financial advisors. Before a client meeting, an advisor can ask:
 
-> "I'm meeting Sarah Chen at 2pm today. She's a conservative investor and she's interested in Apple. Can you give me a quick brief?"
+> "I'm meeting Sarah Chen at 2pm today. She's a conservative investor and she's interested in BHP Group. Can you give me a quick brief?"
 
 MarketPulse responds with:
 - Current stock price from a live API

@@ -47,7 +47,7 @@ flowchart TB
 ## The Risk Scorer Lambda
 
 The Lambda function takes:
-- **Stock ticker** - The stock being considered (e.g., AAPL, TSLA)
+- **Stock ticker** - The stock being considered (e.g., BHP.AX, FMG.AX)
 - **Client risk profile** - `conservative`, `moderate`, or `aggressive`
 
 And returns:
@@ -71,11 +71,11 @@ The Lambda is in `lambda/scorer.py`. Open it and review the key sections:
 ```python
 # Volatility classification per ticker
 VOLATILITY_MAP = {
-    "AAPL": "low",
-    "MSFT": "low",
-    "GOOGL": "medium",
-    "TSLA": "high",
-    "NVDA": "high",
+    "BHP.AX": "low",
+    "CBA.AX": "low",
+    "CSL.AX": "medium",
+    "FMG.AX": "high",
+    "ZIP.AX": "high",
     # ...
 }
 
@@ -119,7 +119,7 @@ def assess_client_suitability(ticker: str, risk_profile: str) -> dict:
     This tool is routed through AgentCore Gateway to the risk scorer Lambda.
 
     Args:
-        ticker:       Stock ticker symbol (e.g., AAPL, TSLA)
+        ticker:       Stock ticker symbol (e.g., BHP.AX, FMG.AX)
         risk_profile: Client risk profile - conservative, moderate, or aggressive
 
     Returns:
@@ -202,7 +202,7 @@ Query: I'm meeting with Sarah Chen, a conservative investor. Is Apple suitable?
 Agent Response:
 Sarah Chen - Conservative Investor
 
-Stock: Apple Inc. (AAPL)
+Stock: BHP Group (BHP.AX)
 Current Price: $184.25
 
 Suitability: Clear Match
@@ -213,18 +213,18 @@ well aligned with Sarah's capital preservation goals.
 Recommendation: Appropriate for her portfolio.
 ```
 
-**Conservative investor + Tesla (high volatility):**
+**Conservative investor + Fortescue Metals (high volatility):**
 
 ```
-Query: Is Tesla suitable for a conservative investor?
+Query: Is Fortescue Metals suitable for a conservative investor?
 
 Agent Response:
-Tesla (TSLA) Suitability Assessment - Conservative Profile
+Fortescue Metals (FMG.AX) Suitability Assessment - Conservative Profile
 
 Suitability: Not Suitable
 
-Tesla's high price volatility is inappropriate for a conservative portfolio
-focused on capital preservation. Consider stable alternatives like AAPL or MSFT.
+Fortescue Metals' high price volatility is inappropriate for a conservative portfolio
+focused on capital preservation. Consider stable alternatives like BHP.AX or CBA.AX.
 ```
 
 You can also run ad-hoc queries directly:
@@ -245,9 +245,9 @@ Look for log entries showing the assessment:
 
 ```
 START RequestId: abc-123
-[INFO] Risk scorer invoked with event: {"ticker": "AAPL", "risk_profile": "conservative"}
-[INFO] Ticker=AAPL volatility=low risk_profile=conservative
-[INFO] Assessment result: {"ticker": "AAPL", "suitability": "clear_match", ...}
+[INFO] Risk scorer invoked with event: {"ticker": "BHP.AX", "risk_profile": "conservative"}
+[INFO] Ticker=BHP.AX volatility=low risk_profile=conservative
+[INFO] Assessment result: {"ticker": "BHP.AX", "suitability": "clear_match", ...}
 END RequestId: abc-123
 REPORT Duration: 12ms Billed Duration: 13ms Memory: 128MB Max Memory: 48MB
 ```

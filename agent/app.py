@@ -12,6 +12,14 @@ Module 4: Market calendar via MCP Gateway target
 Module 5: Memory for persistent context
 Module 6: OAuth 2.0 authentication for MCP
 Module 7: Observability with distributed tracing
+
+Observability (Module 7):
+When AGENT_OBSERVABILITY_ENABLED=true, the agent is automatically instrumented via
+OpenTelemetry. All requests, tool calls, memory operations, and LLM invocations are
+traced to AWS X-Ray. No code changes required - instrumentation is handled by:
+- strands-agents[otel] package
+- aws-opentelemetry-distro in Dockerfile
+- opentelemetry-instrument wrapper in container CMD
 """
 
 import os

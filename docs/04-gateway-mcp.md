@@ -205,7 +205,7 @@ python scripts/test-calendar.py
 
 1. Basic Australian market holiday check for the current week
 2. Trade timing query — checks for closures before executing a large order
-3. US market holiday lookup over a 14-day window
+3. Australian market holiday lookup over a 14-day window
 
 **Example response:**
 

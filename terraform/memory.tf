@@ -12,8 +12,8 @@
 resource "awscc_bedrockagentcore_memory" "advisor_memory" {
   count = var.enable_memory ? 1 : 0
 
-  name                   = local.memory_name
-  description            = "Memory store for MarketPulse advisor and client context"
+  name                  = local.memory_name
+  description           = "Memory store for MarketPulse advisor and client context"
   event_expiry_duration = 90 # Days until short-term memory events expire
 
   # Memory strategies - AWS allows one strategy of each type
@@ -21,13 +21,13 @@ resource "awscc_bedrockagentcore_memory" "advisor_memory" {
   memory_strategies = [
     {
       user_preference_memory_strategy = {
-        name = "AdvisorPreferences"
+        name       = "AdvisorPreferences"
         namespaces = ["/advisors/{actorId}/preferences/"]
       }
     },
     {
       semantic_memory_strategy = {
-        name = "ClientProfiles"
+        name       = "ClientProfiles"
         namespaces = ["/clients/{actorId}/"]
       }
     }

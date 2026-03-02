@@ -70,15 +70,15 @@ def main() -> int:
     # Test stock price queries
     test_prompts = [
         {
-            "prompt": "What is the current price of Apple stock (AAPL)?",
+            "prompt": "What is the current price of BHP Group stock (BHP.AX)?",
             "description": "Single stock price query"
         },
         {
-            "prompt": "Can you compare the current prices of Apple (AAPL) and Microsoft (MSFT)?",
+            "prompt": "Can you compare the current prices of BHP (BHP.AX) and Commonwealth Bank (CBA.AX)?",
             "description": "Multi-stock comparison"
         },
         {
-            "prompt": "What's the trading range for Tesla (TSLA) today?",
+            "prompt": "What's the trading range for Fortescue Metals (FMG.AX) today?",
             "description": "Stock trading range query"
         }
     ]

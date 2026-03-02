@@ -76,17 +76,17 @@ def main() -> int:
         },
         {
             "prompt": (
-                "I'm planning to execute a large AAPL trade for a client on Monday. "
-                "Are there any market closures in the next 7 days that could affect timing?"
+                "I'm planning to execute a large BHP.AX trade for a client on Monday. "
+                "Are there any market closures in the next 40 days that could affect timing?"
             ),
             "description": "Trade timing + holiday awareness",
         },
         {
             "prompt": (
-                "Check US market holidays for the next 14 days. "
-                "My client wants to buy MSFT and needs to know the best week to act."
+                "Check Australian market holidays for the next 14 days. "
+                "My client wants to buy CBA.AX and needs to know the best week to act."
             ),
-            "description": "US market holidays over 2-week window",
+            "description": "Australian market holidays over 2-week window",
         },
     ]
 
@@ -130,7 +130,7 @@ def main() -> int:
     print("Next steps:")
     print("  - Review MCP server logs:")
     print(f"      aws logs tail /aws/bedrock-agentcore/runtime/{mcp_runtime_name} --follow")
-    print("  - Try different country codes: US, GB, NZ, JP")
+    print("  - Try different country codes: AU, US, GB, NZ, JP")
     print("  - Proceed to Module 5 to add persistent memory")
     print()
 

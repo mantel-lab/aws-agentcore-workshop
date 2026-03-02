@@ -61,7 +61,7 @@ flowchart TB
 
 **API endpoint:**
 ```
-GET https://finnhub.io/api/v1/quote?symbol=AAPL&token=YOUR_API_KEY
+GET https://finnhub.io/api/v1/quote?symbol=BHP.AX&token=YOUR_API_KEY
 ```
 
 **Response:**
@@ -103,7 +103,7 @@ def get_stock_price(symbol: str) -> dict:
     This tool is routed through AgentCore Gateway to the Finnhub API.
     
     Args:
-        symbol: Stock ticker symbol (e.g., AAPL, MSFT, TSLA)
+        symbol: Stock ticker symbol (e.g., BHP.AX, CBA.AX, FMG.AX)
         
     Returns:
         dict: Stock quote data with current price, day range, etc.
@@ -220,11 +220,11 @@ Retrieving agent configuration from Terraform outputs...
 Running stock price tests...
 
 Test 1/3: Single stock price query
-Query: What is the current price of Apple stock (AAPL)?
+Query: What is the current price of BHP Group stock (BHP.AX)?
 
 Agent Response:
 ----------------------------------------------------------------------
-Apple Inc. (AAPL) - Current Market Data
+BHP Group (BHP.AX) - Current Market Data
 
 Current Price: $184.25
 Day Range: $182.50 - $185.10
@@ -252,7 +252,7 @@ Replace `marketpulse_workshop_agent` with your actual runtime name if you change
 **What to look for:**
 
 ```
-[INFO] MarketPulse received query: What is the current price of Apple stock (AAPL)?
+[INFO] MarketPulse received query: What is the current price of BHP Group stock (BHP.AX)?
 [INFO] Tools available: 1
 [INFO] Gateway enabled - stock price tool available
 ```
@@ -313,13 +313,13 @@ The `operationId` (`get_stock_price`) is the link between the Python function an
 
 ### The Bridge
 
-The Gateway target is registered via AWS CLI (inside a Terraform `null_resource` in `gateway.tf`). When the agent asks to call `get_stock_price("AAPL")`:
+The Gateway target is registered via AWS CLI (inside a Terraform `null_resource` in `gateway.tf`). When the agent asks to call `get_stock_price("BHP.AX")`:
 
 1. AgentCore intercepts the call before the Python body executes
 2. Looks up the Gateway target whose `operationId` matches `get_stock_price`
 3. Maps the `symbol` argument to the `symbol` query parameter
 4. Retrieves the API key from Secrets Manager
-5. Sends `GET https://finnhub.io/api/v1/quote?symbol=AAPL&token=xxx`
+5. Sends `GET https://finnhub.io/api/v1/quote?symbol=BHP.AX&token=xxx`
 6. Returns the response to the agent
 
 The agent code never handles URLs, API keys, or HTTP responses directly.
@@ -433,7 +433,7 @@ In [Module 3](03-gateway-lambda.md), you'll add a Lambda target for risk assessm
 
 **Before proceeding:**
 
-- Test multiple stock tickers (AAPL, MSFT, TSLA, GOOGL)
+- Test multiple stock tickers (BHP.AX, CBA.AX, FMG.AX, CSL.AX)
 - Verify the agent references current prices, not training data values
 - Check CloudWatch Logs to confirm the agent is receiving your queries
 
