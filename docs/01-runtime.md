@@ -195,6 +195,23 @@ tags = {
 
 ## Step 4: Build and Deploy
 
+**Important - Docker Setup (macOS users):**
+
+Before running Docker commands, ensure Colima is installed and running:
+
+```bash
+# Install Colima (if not already installed)
+brew install colima
+
+# Start Colima with aarch64 architecture
+colima start --arch aarch64
+
+# Verify Docker is working
+docker ps  # Should show no errors
+```
+
+**Note:** If you're using Docker Desktop instead of Colima, ensure it's running before proceeding.
+
 The deployment requires a specific order due to dependencies:
 
 **Step 4a: Create ECR Repository**
