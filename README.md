@@ -453,31 +453,6 @@ Confirm your deployment is production-ready:
 - [ ] CloudWatch logs show no error messages
 - [ ] IAM roles follow least-privilege principle (inspect policies)
 
-## Cost Estimates
-
-This workshop incurs AWS charges while resources are deployed:
-
-**Core Services (always active):**
-- AgentCore Runtime: ~$0.01/hour per runtime (agent + MCP server = 2 runtimes)
-- ECR Storage: ~$0.10/GB/month
-- CloudWatch Logs: ~$0.50/GB ingested
-- Secrets Manager: $0.40/month per secret
-
-**Per-Request Costs:**
-- Bedrock Claude 3 Sonnet invocations: ~$0.003 per request
-- AgentCore Gateway: ~$0.0001 per target invocation
-- Lambda execution: Free tier covers workshop usage
-- X-Ray tracing: First 100,000 traces/month free
-
-**Estimated Total:** $5-10 for a 3-hour workshop session including testing.
-
-**Cost Optimisation:**
-- Run `terraform destroy` immediately after completing the workshop
-- Use Finnhub free tier (no additional cost)
-- Stay within AWS Free Tier for Lambda and CloudWatch where applicable
-
-**Note:** Always verify current pricing at [AWS Pricing Calculator](https://calculator.aws/).
-
 ## Workshop Completion Criteria
 
 You have successfully completed the workshop when:
