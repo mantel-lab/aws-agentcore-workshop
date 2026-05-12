@@ -5,7 +5,12 @@
 # Project Configuration
 # ============================================================================
 project_name = "marketpulse"
-environment  = "workshop"
+
+# Set environment to your name or a unique identifier.
+# If multiple engineers are deploying to the same AWS account, each person
+# must use a different value here to avoid resource name collisions.
+# e.g. "alice", "bob", "eng01"
+environment = "workshop"
 
 # AWS Region - Choose a region that supports Bedrock and AgentCore
 aws_region = "ap-southeast-2"
@@ -62,9 +67,9 @@ enable_observability = false
 # Bedrock Configuration
 # ============================================================================
 
-# Model ID for agent runtime
-# Supported models: Claude 3.5 Sonnet, Claude 3 Opus, etc.
-bedrock_model_id = "anthropic.claude-sonnet-4-5-20250929-v1:0"
+# Model ID for agent runtime - use cross-region inference profile, not the bare model ID
+# See: https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles.html
+bedrock_model_id = "au.anthropic.claude-sonnet-4-5-20250929-v1:0"
 
 # Model inference parameters
 model_temperature = 0.7

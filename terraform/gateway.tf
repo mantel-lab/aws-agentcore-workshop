@@ -256,7 +256,7 @@ resource "null_resource" "gateway" {
         fi
         
         # Extract Gateway ID from output
-        GATEWAY_ID=$(echo "$CREATE_OUTPUT" | jq -r '.gateway.gatewayId // empty')
+        GATEWAY_ID=$(echo "$CREATE_OUTPUT" | jq -r '.gatewayId // empty')
         
         # Validate Gateway ID
         if [ -z "$GATEWAY_ID" ] || [ "$GATEWAY_ID" == "null" ] || [ "$GATEWAY_ID" == "None" ]; then

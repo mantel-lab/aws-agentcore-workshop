@@ -24,6 +24,7 @@ traced to AWS X-Ray. No code changes required - instrumentation is handled by:
 
 import os
 import logging
+import uuid
 from datetime import datetime
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 from strands import Agent
@@ -37,7 +38,7 @@ logger = logging.getLogger(__name__)
 app = BedrockAgentCoreApp()
 
 # Configure Bedrock model from environment variable
-model_id = os.environ.get("BEDROCK_MODEL_ID", "anthropic.claude-3-5-sonnet-20241022-v2:0")
+model_id = os.environ.get("BEDROCK_MODEL_ID", "au.anthropic.claude-sonnet-4-5-20250929-v1:0")
 model = BedrockModel(
     model_id=model_id
 )
@@ -219,7 +220,8 @@ def marketpulse_agent(payload):
     # Memory-enabled path: Create agent with session manager per request
     # Extract memory context from payload (or use defaults for workshop)
     actor_id = payload.get("actor_id", "advisor_001")
-    session_id = payload.get("session_id", "default_session")
+    # Session IDs must be minimum 33 characters for AgentCore Memory API validation
+    session_id = payload.get("session_id", f"default-session-{str(uuid.uuid4())}")
     
     logger.info(f"Memory enabled - actor_id: {actor_id}, session_id: {session_id}")
     

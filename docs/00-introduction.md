@@ -109,7 +109,7 @@ app = BedrockAgentCoreApp()
 
 # Create agent with model and system prompt
 agent = Agent(
-    model=BedrockModel(model_id="anthropic.claude-sonnet-4-5-20250929-v1:0"),
+    model=BedrockModel(model_id="au.anthropic.claude-sonnet-4-5-20250929-v1:0"),
     tools=[],  # Tools added via Gateway in later modules
     system_prompt="You are a financial advisor assistant..."
 )

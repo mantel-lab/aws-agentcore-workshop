@@ -107,7 +107,7 @@ docker ps  # Should show no errors
 **AWS Account Setup:**
 1. Enable Bedrock model access in your AWS account:
    - Navigate to AWS Console → Bedrock → Model access
-   - Request access to Claude 3 Sonnet (anthropic.claude-sonnet-4-5-20250929-v1:0)
+   - Request access to Claude Sonnet 4.5 (au.anthropic.claude-sonnet-4-5-20250929-v1:0)
    - Wait for approval (usually instant for standard models)
 
 2. Register for Finnhub API key:
@@ -136,7 +136,7 @@ cp terraform/terraform.tfvars.example terraform/terraform.tfvars
 # environment       = "dev"
 # aws_region        = "ap-southeast-2"
 # finnhub_api_key   = "your_finnhub_key_here"
-# agent_model_id    = "anthropic.claude-sonnet-4-5-20250929-v1:0"
+# agent_model_id    = "au.anthropic.claude-sonnet-4-5-20250929-v1:0"
 #
 # Feature flags (enable progressively during workshop):
 # enable_gateway        = false

@@ -169,7 +169,7 @@ enable_observability = false
 aws_region         = "ap-southeast-2"
 project_name       = "marketpulse-workshop"
 environment        = "dev"
-bedrock_model_id   = "anthropic.claude-sonnet-4-5-20250929-v1:0"
+bedrock_model_id   = "au.anthropic.claude-sonnet-4-5-20250929-v1:0"
 finnhub_api_key    = "your-finnhub-api-key"  # From Module 2
 ```
 

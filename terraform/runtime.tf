@@ -107,10 +107,14 @@ resource "aws_iam_role_policy" "agent_bedrock_access" {
         Effect = "Allow"
         Action = [
           "bedrock:InvokeModel",
-          "bedrock:InvokeModelWithResponseStream"
+          "bedrock:InvokeModelWithResponseStream",
+          "bedrock:Converse",
+          "bedrock:ConverseStream"
         ]
         Resource = [
-          "arn:aws:bedrock:${var.aws_region}::foundation-model/${var.bedrock_model_id}"
+          "arn:aws:bedrock:*::foundation-model/*",
+          "arn:aws:bedrock:${var.aws_region}::inference-profile/*",
+          "arn:aws:bedrock:${var.aws_region}:${local.account_id}:inference-profile/*"
         ]
       }
     ]

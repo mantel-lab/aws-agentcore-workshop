@@ -67,7 +67,7 @@ from strands.models import BedrockModel
 app = BedrockAgentCoreApp()
 
 # Configure Bedrock model from environment variable
-model_id = os.environ.get("BEDROCK_MODEL_ID", "anthropic.claude-sonnet-4-5-20250929-v1:0")
+model_id = os.environ.get("BEDROCK_MODEL_ID", "au.anthropic.claude-sonnet-4-5-20250929-v1:0")
 model = BedrockModel(model_id=model_id)
 
 # Create the MarketPulse agent
@@ -173,7 +173,7 @@ environment  = "workshop"
 aws_region   = "ap-southeast-2"
 
 # Bedrock Model
-bedrock_model_id = "anthropic.claude-sonnet-4-5-20250929-v1:0"
+bedrock_model_id = "au.anthropic.claude-sonnet-4-5-20250929-v1:0"
 
 # Feature Flags (Module 1: All disabled initially)
 enable_gateway       = false
