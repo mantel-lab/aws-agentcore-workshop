@@ -185,6 +185,7 @@ resource "aws_iam_role_policy" "agent_gateway_access" {
       {
         Effect = "Allow"
         Action = [
+          "bedrock-agentcore:InvokeGateway",
           "bedrock-agentcore:InvokeGatewayTarget",
           "bedrock-agentcore:GetGatewayTarget",
           "bedrock-agentcore:ListGatewayTargets"
@@ -203,7 +204,10 @@ resource "time_sleep" "iam_propagation" {
     aws_iam_role.agent_runtime,
     aws_iam_role_policy.agent_bedrock_access,
     aws_iam_role_policy.agent_ecr_access,
-    aws_iam_role_policy.agent_logs_access
+    aws_iam_role_policy.agent_logs_access,
+    aws_iam_role_policy.agent_gateway_access,
+    aws_iam_role_policy.agent_memory_access,
+    aws_iam_role_policy.agent_xray_access
   ]
 }
 
