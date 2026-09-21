@@ -303,10 +303,44 @@ resource "null_resource" "gateway" {
       
       # Delete Gateway if ID exists
       if [ -n "$GATEWAY_ID" ] && [ "$GATEWAY_ID" != "None" ]; then
+        # Target deletion is asynchronous, so the Gateway can still hold targets
+        # when Terraform reaches this point. Drain them before deleting.
+        DRAIN_ATTEMPT=1
+        while [ $DRAIN_ATTEMPT -le 6 ]; do
+          REMAINING=$(aws bedrock-agentcore-control list-gateway-targets \
+            --gateway-identifier "$GATEWAY_ID" \
+            --region ${self.triggers.region} \
+            --output json 2>/dev/null | jq -r '.items[]?.targetId')
+
+          if [ -z "$REMAINING" ]; then
+            break
+          fi
+
+          for REMAINING_TARGET in $REMAINING; do
+            echo "Removing leftover target: $REMAINING_TARGET"
+            aws bedrock-agentcore-control delete-gateway-target \
+              --gateway-identifier "$GATEWAY_ID" \
+              --target-id "$REMAINING_TARGET" \
+              --region ${self.triggers.region} > /dev/null 2>&1 || true
+          done
+
+          sleep 10
+          DRAIN_ATTEMPT=$((DRAIN_ATTEMPT + 1))
+        done
+
         echo "Deleting Gateway: $GATEWAY_ID"
-        aws bedrock-agentcore-control delete-gateway \
-          --gateway-identifier "$GATEWAY_ID" \
-          --region ${self.triggers.region} || true
+        DELETE_ATTEMPT=1
+        while [ $DELETE_ATTEMPT -le 3 ]; do
+          if aws bedrock-agentcore-control delete-gateway \
+            --gateway-identifier "$GATEWAY_ID" \
+            --region ${self.triggers.region} > /dev/null 2>&1; then
+            echo "Gateway deleted"
+            break
+          fi
+          echo "Gateway delete failed (attempt $DELETE_ATTEMPT), retrying in 15 seconds..."
+          sleep 15
+          DELETE_ATTEMPT=$((DELETE_ATTEMPT + 1))
+        done
       else
         echo "No Gateway ID found for cleanup"
       fi
