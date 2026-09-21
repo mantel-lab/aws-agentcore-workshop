@@ -421,13 +421,30 @@ resource "null_resource" "mcp_gateway_target" {
 
       # Trigger MCP tool discovery. AgentCore calls the server's tools/list endpoint
       # and builds a searchable catalogue for agents to query.
-      echo "Synchronising MCP tool catalogue..."
-      aws bedrock-agentcore-control synchronize-gateway-targets \
-        --gateway-identifier "$GATEWAY_ID" \
-        --target-id-list "$TARGET_ID" \
-        --region ${var.aws_region} 2>/dev/null \
-        && echo "Synchronisation triggered (runs asynchronously)" \
-        || echo "Synchronisation request skipped - tools will sync on first Gateway request"
+      # The MCP runtime is cold straight after creation, so the first tools/list
+      # call fails and the catalogue stays empty. Wait, then retry.
+      echo "Waiting for the MCP runtime to warm up before synchronising..."
+      sleep 60
+
+      SYNC_ATTEMPT=1
+      SYNC_DONE=false
+      while [ $SYNC_ATTEMPT -le 3 ]; do
+        if aws bedrock-agentcore-control synchronize-gateway-targets \
+          --gateway-identifier "$GATEWAY_ID" \
+          --target-id-list "$TARGET_ID" \
+          --region ${var.aws_region} > /dev/null 2>&1; then
+          echo "Synchronisation triggered on attempt $SYNC_ATTEMPT (runs asynchronously)"
+          SYNC_DONE=true
+          break
+        fi
+        echo "Synchronisation attempt $SYNC_ATTEMPT failed, retrying in 30 seconds..."
+        sleep 30
+        SYNC_ATTEMPT=$((SYNC_ATTEMPT + 1))
+      done
+
+      if [ "$SYNC_DONE" != "true" ]; then
+        echo "Synchronisation did not succeed - tools will sync on the first Gateway request"
+      fi
 
       aws ssm put-parameter \
         --name "/${var.project_name}/${var.environment}/mcp-target-id" \
