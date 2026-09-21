@@ -24,11 +24,16 @@ import boto3
 
 FINNHUB_QUOTE_URL = "https://finnhub.io/api/v1/quote"
 
-# Matches currency amounts such as "$182.45", "USD 1,234.50", "182.45"
-_AMOUNT_PATTERN = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.\d+")
+# Currency amounts such as "$182.45", "USD 1,234.50", "182.45 USD". Requiring a
+# currency marker keeps percentages, ratios and dates out of the comparison.
+_AMOUNT_PATTERN = re.compile(
+    r"(?:\$|USD\s*)(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)"
+    r"|(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)\s*USD",
+    re.IGNORECASE,
+)
 
-# Verification outcomes that mean the agent reported a price it did not retrieve
-FAILURE_STATUSES = frozenset({"hallucinated", "no_price"})
+# Verification outcomes that mean the agent did not report the data it retrieved
+FAILURE_STATUSES = frozenset({"hallucinated", "no_price", "missing_symbol"})
 
 
 def get_terraform_output(output_name: str, terraform_dir: Path) -> str:
@@ -151,6 +156,7 @@ def invoke_agent(
     response = client.invoke_agent_runtime(
         agentRuntimeArn=runtime_arn,
         runtimeSessionId=session_id,
+        qualifier=endpoint_name,
         payload=payload,
     )
 
@@ -241,15 +247,27 @@ def fetch_finnhub_quote(symbol: str, api_key: str, timeout: int = 10) -> dict[st
 
 
 def extract_amounts(text: str) -> list[float]:
-    """Extract decimal/thousand-separated numbers that could be quoted prices."""
-    return [float(match.replace(",", "")) for match in _AMOUNT_PATTERN.findall(text)]
+    """Extract currency amounts that could be quoted prices."""
+    amounts = []
+    for prefixed, suffixed in _AMOUNT_PATTERN.findall(text):
+        amounts.append(float((prefixed or suffixed).replace(",", "")))
+    return amounts
+
+
+def symbol_context(text: str, symbol: str) -> str:
+    """Return the lines that mention the symbol, so prices are matched to the right ticker."""
+    pattern = re.compile(rf"(?<![A-Za-z0-9]){re.escape(symbol)}(?![A-Za-z0-9])", re.IGNORECASE)
+    return "\n".join(line for line in text.splitlines() if pattern.search(line))
 
 
 def verify_stock_price(
-    response_text: str, symbol: str, api_key: str | None, tolerance_pct: float = 2.0
+    response_text: str, symbol: str, api_key: str | None, tolerance_pct: float = 1.0
 ) -> dict[str, Any]:
     """
     Check that prices quoted for a symbol match a live Finnhub quote.
+
+    Only amounts on lines that mention the symbol are considered, so a price for
+    one ticker cannot satisfy the check for another.
 
     Args:
         response_text: The agent's answer.
@@ -259,8 +277,8 @@ def verify_stock_price(
 
     Returns:
         dict with keys: symbol, status, detail.
-        Status is one of: verified, hallucinated, no_price, unavailable, skipped.
-        See FAILURE_STATUSES for the statuses that count as failures.
+        Status is one of: verified, hallucinated, no_price, missing_symbol,
+        unavailable, skipped. See FAILURE_STATUSES for the failures.
     """
 
     def result(status: str, detail: str) -> dict[str, Any]:
@@ -269,18 +287,23 @@ def verify_stock_price(
     if not api_key:
         return result("skipped", "No Finnhub API key found locally")
 
+    context = symbol_context(response_text, symbol)
+    amounts = extract_amounts(context)
+
     quote = fetch_finnhub_quote(symbol, api_key)
     live_prices = [float(quote.get(field) or 0) for field in ("c", "h", "l", "o", "pc")]
     live_prices = [price for price in live_prices if price > 0]
-    amounts = extract_amounts(response_text)
 
     if not live_prices:
         detail = quote.get("error", "Finnhub returned a zeroed quote")
         if amounts:
             return result(
-                "hallucinated", f"{detail}, but the agent still quoted figures: {amounts[:5]}"
+                "hallucinated", f"{detail}, but the agent quoted {amounts[:5]} for it"
             )
         return result("unavailable", detail)
+
+    if not context:
+        return result("missing_symbol", "The answer does not mention this ticker")
 
     for amount in amounts:
         for price in live_prices:
@@ -288,7 +311,7 @@ def verify_stock_price(
                 return result("verified", f"agent quoted {amount} vs live {price}")
 
     if not amounts:
-        return result("no_price", f"No price in response; live price was {live_prices[0]}")
+        return result("no_price", f"No price quoted; live price was {live_prices[0]}")
 
     return result(
         "hallucinated",

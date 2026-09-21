@@ -263,19 +263,28 @@ should report that the price is unavailable rather than produce a number.
 ### How the test verifies prices
 
 A confident-sounding answer is not evidence the tool ran. `scripts/test-stock.py`
-fetches a quote straight from Finnhub and compares it against the figures in the
-agent's answer:
+fetches a quote straight from Finnhub and compares it against the figures the agent
+reported for that ticker:
 
 ```
 Price verification (agent answer vs live Finnhub quote):
   [ok  ] NVDA: verified - agent quoted 184.25 vs live 184.25
-  [FAIL] BHP.AX: hallucinated - HTTP 403 from Finnhub, but the agent still quoted figures: [40.49]
+  [ok  ] MSFT: verified - agent quoted 412.60 vs live 412.60
+  [ok  ] TSLA: verified - agent quoted 241.05 vs live 241.05
+  [ok  ] BHP.AX: unavailable - HTTP 403 from Finnhub (free tier does not cover this symbol)
 ```
 
-A `hallucinated` or `no_price` result exits non-zero. Tool calls travel over the network
-and can fail; when they do, a language model will often answer from what it remembers
-rather than say nothing. Comparing against live data is what separates a working
-integration from a convincing one.
+Only amounts on lines that mention the ticker count, so a price for one stock cannot
+satisfy the check for another. A run where the agent reports a price it did not
+retrieve looks like this and exits non-zero:
+
+```
+  [FAIL] BHP.AX: hallucinated - HTTP 403 from Finnhub (free tier does not cover this symbol), but the agent quoted [40.49] for it
+```
+
+Tool calls travel over the network and can fail; when they do, a language model will
+often answer from what it remembers rather than say nothing. Comparing against live
+data is what separates a working integration from a convincing one.
 
 ## Step 6: Inspect Agent Logs
 
