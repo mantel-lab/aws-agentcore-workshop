@@ -73,9 +73,8 @@ else:
 #   Module 3: assess_client_suitability (Lambda target -> risk scorer)
 #   Module 4: check_market_holidays (MCP target -> market calendar server)
 #
-# Declaring local Python functions with empty bodies does not work: nothing
-# intercepts the call, the tool returns None, and the model answers from
-# training data instead of live data.
+# Tool schemas live in Terraform (OpenAPI spec, Lambda inlinePayload, MCP
+# server), so enabling a target is all it takes to give the agent a new tool.
 
 
 class SigV4HTTPXAuth(httpx.Auth):
@@ -107,9 +106,9 @@ def resolve_gateway_url() -> str:
     """
     Build the Gateway MCP endpoint URL.
 
-    GATEWAY_URL wins if set. Otherwise the Gateway ID is read from SSM at
-    startup, which avoids baking a stale ID into the runtime configuration.
-    The ID already contains the project prefix, so it is used verbatim.
+    GATEWAY_URL wins if set. Otherwise the Gateway ID is read from SSM at startup,
+    so the runtime always uses the current Gateway. The ID already carries the
+    project prefix, so it is used verbatim.
     """
     explicit_url = os.environ.get("GATEWAY_URL", "").strip()
     if explicit_url:
@@ -142,7 +141,7 @@ def connect_to_gateway() -> tuple[MCPClient | None, list]:
         client = MCPClient(
             lambda: streamablehttp_client(gateway_url, auth=SigV4HTTPXAuth(aws_region))
         )
-        # Without start() the session is never running and every tool call fails
+        # Opens the MCP session; tool calls need a running session
         client.start()
 
         tools = client.list_tools_sync()

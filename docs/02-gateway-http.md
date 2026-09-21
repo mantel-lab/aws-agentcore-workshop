@@ -145,10 +145,6 @@ Tool names arrive prefixed with the target name, for example
 `get-stock-price___get_stock_price`. That prefix is how the Gateway routes a call back to
 the right target.
 
-> **Common mistake:** declaring a local Python function with an empty `pass` body and
-> hoping AgentCore intercepts it. Nothing intercepts it. The tool returns `None`, and the
-> model fills the gap with a plausible-sounding price from its training data.
-
 
 ## Step 3: Configure Terraform
 
@@ -264,7 +260,7 @@ For multi-stock comparisons - the agent calls `get_stock_price` once per ticker 
 The fourth query asks for `BHP.AX`, which the free tier does not serve. The agent
 should report that the price is unavailable rather than produce a number.
 
-### How the test detects invented prices
+### How the test verifies prices
 
 A confident-sounding answer is not evidence the tool ran. `scripts/test-stock.py`
 fetches a quote straight from Finnhub and compares it against the figures in the
@@ -276,9 +272,10 @@ Price verification (agent answer vs live Finnhub quote):
   [FAIL] BHP.AX: hallucinated - HTTP 403 from Finnhub, but the agent still quoted figures: [40.49]
 ```
 
-A `hallucinated` or `no_price` result exits non-zero. Without this check, a broken
-Gateway target looks like a passing test, because the model falls back to prices
-remembered from training data.
+A `hallucinated` or `no_price` result exits non-zero. Tool calls travel over the network
+and can fail; when they do, a language model will often answer from what it remembers
+rather than say nothing. Comparing against live data is what separates a working
+integration from a convincing one.
 
 ## Step 6: Inspect Agent Logs
 
@@ -294,9 +291,10 @@ Replace `marketpulse_workshop_agent` with your actual runtime name if you change
 **What to look for:**
 
 ```
+[INFO] Connecting to Gateway: https://marketpulse-workshop-gateway-abc123.gateway.bedrock-agentcore.ap-southeast-2.amazonaws.com/mcp
+[INFO] Gateway tools loaded: ['get-stock-price___get_stock_price']
 [INFO] MarketPulse received query: What is the current price of NVIDIA stock (NVDA)?
 [INFO] Tools available: 1
-[INFO] Gateway enabled - stock price tool available
 ```
 
 You can also view the Gateway configuration in the AWS console:
@@ -358,14 +356,14 @@ The OpenAPI spec (stored in S3 and defined in `terraform/gateway.tf`) describes 
 }
 ```
 
-The `operationId` (`get_stock_price`) is the link between the Python function and the API endpoint.
+The `operationId` (`get_stock_price`) becomes the tool name the Gateway advertises, suffixed onto the target name.
 
 ### The Bridge
 
-The Gateway target is registered via AWS CLI (inside a Terraform `null_resource` in `gateway.tf`). When the agent asks to call `get_stock_price("NVDA")`:
+The Gateway target is registered via AWS CLI (inside a Terraform `null_resource` in `gateway.tf`). When the model calls `get-stock-price___get_stock_price` with `symbol=NVDA`:
 
-1. AgentCore intercepts the call before the Python body executes
-2. Looks up the Gateway target whose `operationId` matches `get_stock_price`
+1. The agent sends a `tools/call` request to the Gateway's MCP endpoint
+2. The Gateway matches the target prefix and finds the matching `operationId`
 3. Maps the `symbol` argument to the `symbol` query parameter
 4. Retrieves the API key from Secrets Manager
 5. Sends `GET https://finnhub.io/api/v1/quote?symbol=NVDA&token=xxx`
@@ -417,12 +415,12 @@ cd terraform && terraform apply
 
 ### Tool search returns no tools, or `tools/call` fails with "internal error"
 
-**Cause:** The Gateway was created without `searchType: SEMANTIC`, so it has no tool
-index for agents to query. Terraform now sets this at creation time.
+**Cause:** The Gateway is missing `searchType: SEMANTIC`, so it has no tool index for
+agents to query. Terraform sets this when it creates the Gateway, so this applies to a
+Gateway that already existed before you ran this module.
 
-**Solution:** Gateways created before this setting existed cannot be reliably upgraded
-in place - switching an existing gateway to `SEMANTIC` leaves the index in a state where
-`tools/call` returns an internal error. Destroy and recreate the Gateway:
+**Solution:** Switching an existing Gateway to `SEMANTIC` does not rebuild its index
+reliably. Destroy and recreate it:
 
 ```bash
 cd terraform
@@ -437,8 +435,8 @@ failed (check CloudWatch for the Gateway invocation) or the ticker is outside th
 Finnhub free tier and the model filled the gap from training data.
 
 **Solution:** Confirm the Gateway target is healthy and use US tickers. The system
-prompt already instructs the agent to report unavailable data rather than estimate;
-if it still invents figures, the tool result is probably not reaching the model.
+prompt instructs the agent to report unavailable data rather than estimate, so if it
+still invents figures, the tool result is probably not reaching the model.
 
 ### Rate limit errors from Finnhub
 

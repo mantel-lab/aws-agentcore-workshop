@@ -6,9 +6,8 @@ Tests the MarketPulse agent's ability to retrieve live stock prices
 via the Gateway HTTP target (Finnhub API).
 
 The Finnhub free tier serves US-listed equities only, so the queries use US
-tickers. Every price in the agent's answer is compared against a live quote
-fetched directly from Finnhub - a fluent answer full of invented prices is a
-failure, not a pass.
+tickers. Each price in the agent's answer is checked against a live quote fetched
+directly from Finnhub, so the test passes only when the agent reports real data.
 
 This script requires Module 2 to be deployed (enable_gateway and enable_http_target).
 """

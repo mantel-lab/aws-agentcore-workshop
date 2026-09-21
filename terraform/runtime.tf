@@ -252,9 +252,8 @@ resource "awscc_bedrockagentcore_runtime" "agent" {
       ENABLE_MEMORY        = var.enable_memory ? "true" : "false"
       MEMORY_ID            = var.enable_memory ? awscc_bedrockagentcore_memory.advisor_memory[0].memory_id : ""
       AWS_REGION           = var.aws_region
-      # The agent reads the Gateway ID from SSM at startup. Passing the ID itself
-      # would bake in whatever value existed at plan time, which is "pending" on
-      # the first apply.
+      # The agent resolves the Gateway ID from SSM at startup, so the runtime does
+      # not need the ID at plan time.
       GATEWAY_ID_PARAMETER = var.enable_gateway ? "/${var.project_name}/${var.environment}/gateway-id" : ""
     },
     var.enable_observability ? {

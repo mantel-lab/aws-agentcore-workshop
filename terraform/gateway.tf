@@ -216,8 +216,8 @@ resource "aws_secretsmanager_secret_version" "finnhub_api_key" {
 resource "null_resource" "gateway" {
   count = var.enable_gateway ? 1 : 0
 
-  # The Gateway has no dependency on the agent runtime; including runtime_id here
-  # destroyed the Gateway and all its targets whenever the runtime was replaced.
+  # Recreate only when the Gateway's own configuration changes. The Gateway is
+  # independent of the agent runtime and outlives runtime replacements.
   triggers = {
     role_arn     = aws_iam_role.gateway[0].arn
     project_name = var.project_name
@@ -240,8 +240,7 @@ resource "null_resource" "gateway" {
       else
         # Create new Gateway using AWS CLI with error capture
         # searchType SEMANTIC builds the tool index that agents query by natural
-        # language. Gateways created without it return empty tool searches, and
-        # switching an existing gateway over does not reliably rebuild the index.
+        # language. It can only be set reliably at creation time.
         CREATE_OUTPUT=$(aws bedrock-agentcore-control create-gateway \
           --name "${local.name_prefix}-gateway" \
           --role-arn "${aws_iam_role.gateway[0].arn}" \

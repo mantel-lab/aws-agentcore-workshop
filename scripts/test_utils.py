@@ -4,9 +4,9 @@ AWS AgentCore Workshop: Shared Test Utilities
 Common functions used across all test scripts. Eliminates code duplication
 and provides a single source of truth for test infrastructure.
 
-Also provides price verification helpers. An LLM will happily invent a stock
-price when a tool call fails, so tests compare the numbers in the agent's answer
-against a live Finnhub quote instead of assuming a non-empty response is correct.
+Also provides price verification helpers. Tests compare the numbers in the agent's
+answer against a live Finnhub quote, so a non-empty response is not mistaken for a
+working tool call.
 """
 
 import json
