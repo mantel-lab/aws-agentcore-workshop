@@ -234,7 +234,7 @@ resource "awscc_bedrockagentcore_runtime" "agent" {
 
   # Network configuration - using PUBLIC mode for workshop simplicity
   network_configuration = {
-    network_mode       = "PUBLIC"
+    network_mode       = var.network_mode
     subnet_ids         = []
     security_group_ids = []
   }
@@ -256,6 +256,8 @@ resource "awscc_bedrockagentcore_runtime" "agent" {
       ENABLE_MEMORY        = var.enable_memory ? "true" : "false"
       MEMORY_ID            = var.enable_memory ? awscc_bedrockagentcore_memory.advisor_memory[0].memory_id : ""
       AWS_REGION           = var.aws_region
+      MODEL_MAX_TOKENS     = tostring(var.model_max_tokens)
+      MODEL_TEMPERATURE    = tostring(var.model_temperature)
       # The agent resolves the Gateway ID from SSM at startup, so the runtime does
       # not need the ID at plan time.
       GATEWAY_ID_PARAMETER = var.enable_gateway ? "/${var.project_name}/${var.environment}/gateway-id" : ""

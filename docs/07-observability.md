@@ -296,7 +296,7 @@ Outputs:
 
 observability_enabled = true
 xray_sampling_rule_name = "marketpulse-sampling"
-trace_log_group = "/aws/bedrock-agentcore/traces/marketpulse_workshop_dev_agent"
+xray_sampling_rule_name = "marketpulse-sampling"
 ```
 
 ### Step 6: Generate a Complete Trace
@@ -1112,7 +1112,7 @@ terraform destroy
 
 ---
 
-**🎉 Congratulations!** You've built a production-ready AI agent system on AWS Bedrock AgentCore.
+**Congratulations!** You've built a production-ready AI agent system on AWS Bedrock AgentCore.
 
 **Key takeaways:**
 
@@ -1123,4 +1123,4 @@ terraform destroy
 - **Custom annotations** enable business context in traces for compliance queries
 - **Essential for production** - No FSI-regulated AI system should run without observability
 
-You now have the knowledge to deploy, secure, and observe AI agents on AWS. Go build something amazing! 🚀
+You now have the knowledge to deploy, secure, and observe AI agents on AWS. Go build something amazing!

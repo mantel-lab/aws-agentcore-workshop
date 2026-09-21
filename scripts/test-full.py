@@ -130,7 +130,7 @@ def main() -> int:
     ])
     
     if not all_enabled:
-        print("⚠️  WARNING: Not all features are enabled!")
+        print("WARNING: Not all features are enabled!")
         print()
         print("This test is designed to exercise the complete MarketPulse system.")
         print("For full functionality, enable all features by updating terraform.tfvars:")

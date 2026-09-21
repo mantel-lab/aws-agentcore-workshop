@@ -48,7 +48,9 @@ app = BedrockAgentCoreApp()
 # Configure Bedrock model from environment variable
 model_id = os.environ.get("BEDROCK_MODEL_ID", "au.anthropic.claude-sonnet-4-5-20250929-v1:0")
 model = BedrockModel(
-    model_id=model_id
+    model_id=model_id,
+    max_tokens=int(os.environ.get("MODEL_MAX_TOKENS", "4096")),
+    temperature=float(os.environ.get("MODEL_TEMPERATURE", "0.7")),
 )
 
 # Check if memory is enabled

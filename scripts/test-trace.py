@@ -92,7 +92,7 @@ def main() -> int:
     
     # Check if observability is enabled
     if observability_enabled.lower() != "true":
-        print("❌ Observability is not enabled!")
+        print("Observability is not enabled!")
         print()
         print("To enable observability:")
         print("1. Edit terraform.tfvars and set: enable_observability = true")
@@ -121,7 +121,7 @@ def main() -> int:
     print()
     
     if gateway_enabled.lower() != "true" or lambda_enabled.lower() != "true" or mcp_enabled.lower() != "true":
-        print("⚠️  Warning: Some tools are not enabled.")
+        print("Warning: Some tools are not enabled.")
         print("   For a complete trace example, enable all features.")
         print("   The trace will only show enabled components.")
         print()
@@ -180,7 +180,7 @@ Please provide a concise summary I can review before the meeting."""
         print("- Duration and status for each operation")
         
     except Exception as e:
-        print(f"❌ Error invoking agent: {e}")
+        print(f"Error invoking agent: {e}")
         return 1
     
     # ========================================================================
@@ -213,7 +213,7 @@ Please provide a concise summary I can review before the meeting."""
     print()
     print("=" * 60)
     print()
-    print("✅ Trace test complete!")
+    print("Trace test complete!")
     print()
     print("Next steps:")
     print("1. Open X-Ray console and examine the trace timeline")

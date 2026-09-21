@@ -194,7 +194,7 @@ resource "awscc_bedrockagentcore_runtime" "mcp" {
 
   # PUBLIC mode for workshop simplicity
   network_configuration = {
-    network_mode       = "PUBLIC"
+    network_mode       = var.network_mode
     subnet_ids         = []
     security_group_ids = []
   }

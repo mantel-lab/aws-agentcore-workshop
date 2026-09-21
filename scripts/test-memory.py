@@ -49,7 +49,7 @@ def main() -> int:
     
     # Check if memory is enabled
     if memory_enabled.lower() != "true":
-        print("❌ Memory is not enabled!")
+        print("Memory is not enabled!")
         print()
         print("To enable memory:")
         print("1. Edit terraform.tfvars and set: enable_memory = true")
@@ -165,7 +165,7 @@ established tech companies and wants to build a diversified portfolio for retire
         print()
         
         if details_missing:
-            print(f"⚠️  Some details were not recalled: {', '.join(details_missing)}")
+            print(f"Some details were not recalled: {', '.join(details_missing)}")
             print()
             print("This could mean:")
             print("- Memory extraction is still processing (try waiting longer)")

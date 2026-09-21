@@ -41,7 +41,7 @@ resource "aws_iam_role_policy" "agent_xray_access" {
 # Configure adaptive sampling for cost optimisation in production
 # For workshop, we trace 100% of requests via environment variable
 resource "aws_xray_sampling_rule" "marketpulse" {
-  count = var.enable_observability ? 1 : 0
+  count = var.enable_observability && var.enable_xray_tracing ? 1 : 0
 
   rule_name      = "marketpulse-sampling" # Max 32 chars
   priority       = 1000
@@ -59,20 +59,6 @@ resource "aws_xray_sampling_rule" "marketpulse" {
 }
 
 # ============================================================================
-# CloudWatch Log Group for Structured Logs
-# ============================================================================
-
-# Log group specifically for trace-correlated logs
-resource "aws_cloudwatch_log_group" "agent_traces" {
-  count = var.enable_observability ? 1 : 0
-
-  name              = "/aws/bedrock-agentcore/traces/${local.agent_name}"
-  retention_in_days = var.log_retention_days
-
-  tags = local.common_tags
-}
-
-# ============================================================================
 # Outputs
 # ============================================================================
 
@@ -83,10 +69,5 @@ output "observability_enabled" {
 
 output "xray_sampling_rule_name" {
   description = "X-Ray sampling rule name"
-  value       = var.enable_observability ? aws_xray_sampling_rule.marketpulse[0].rule_name : null
-}
-
-output "trace_log_group" {
-  description = "CloudWatch log group for trace-correlated logs"
-  value       = var.enable_observability ? aws_cloudwatch_log_group.agent_traces[0].name : null
+  value       = var.enable_observability && var.enable_xray_tracing ? aws_xray_sampling_rule.marketpulse[0].rule_name : null
 }

@@ -62,7 +62,7 @@ def main() -> int:
             return 1
 
         if auth_enabled.lower() != "true":
-            print("⚠️  OAuth authentication is NOT enabled")
+            print("OAuth authentication is NOT enabled")
             print()
             print("Current configuration: Module 4 (MCP without authentication)")
             print()
