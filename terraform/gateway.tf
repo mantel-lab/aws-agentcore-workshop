@@ -227,14 +227,23 @@ resource "null_resource" "gateway" {
 
   provisioner "local-exec" {
     command = <<-EOT
-      # Check if Gateway already exists
+      # Check if Gateway already exists. Keep stderr off stdout so a failed call
+      # cannot be mistaken for a Gateway ID.
       EXISTING_GATEWAY=$(aws bedrock-agentcore-control list-gateways \
         --region ${var.aws_region} \
         --query "items[?name=='${local.name_prefix}-gateway'].gatewayId | [0]" \
-        --output text 2>&1)
-      
+        --output text) || EXISTING_GATEWAY=""
+
+      case "$EXISTING_GATEWAY" in
+        None|null) EXISTING_GATEWAY="" ;;
+        *[!a-zA-Z0-9-]*)
+          echo "Error: unexpected Gateway ID from list-gateways: $EXISTING_GATEWAY"
+          exit 1
+          ;;
+      esac
+
       # If gateway exists, use existing ID
-      if [ -n "$EXISTING_GATEWAY" ] && [ "$EXISTING_GATEWAY" != "None" ] && [ "$EXISTING_GATEWAY" != "null" ]; then
+      if [ -n "$EXISTING_GATEWAY" ]; then
         GATEWAY_ID="$EXISTING_GATEWAY"
         echo "Using existing Gateway: $GATEWAY_ID"
       else
@@ -247,6 +256,7 @@ resource "null_resource" "gateway" {
           --protocol-type MCP \
           --protocol-configuration '{"mcp":{"searchType":"SEMANTIC"}}' \
           --authorizer-type AWS_IAM \
+          --output json \
           --region ${var.aws_region} 2>&1)
         
         CREATE_EXIT=$?
@@ -329,17 +339,25 @@ resource "null_resource" "gateway" {
 
         echo "Deleting Gateway: $GATEWAY_ID"
         DELETE_ATTEMPT=1
+        DELETED=false
         while [ $DELETE_ATTEMPT -le 3 ]; do
           if aws bedrock-agentcore-control delete-gateway \
             --gateway-identifier "$GATEWAY_ID" \
             --region ${self.triggers.region} > /dev/null 2>&1; then
             echo "Gateway deleted"
+            DELETED=true
             break
           fi
           echo "Gateway delete failed (attempt $DELETE_ATTEMPT), retrying in 15 seconds..."
           sleep 15
           DELETE_ATTEMPT=$((DELETE_ATTEMPT + 1))
         done
+
+        # Fail the destroy rather than leave a Gateway behind that still bills
+        if [ "$DELETED" != "true" ]; then
+          echo "Error: Gateway $GATEWAY_ID could not be deleted. Remove it manually."
+          exit 1
+        fi
       else
         echo "No Gateway ID found for cleanup"
       fi
@@ -375,7 +393,7 @@ resource "null_resource" "finnhub_http_target" {
 
   # Trigger recreation when dependencies change
   triggers = {
-    gateway_id        = local.gateway_id
+    gateway_instance  = null_resource.gateway[0].id
     openapi_spec_etag = aws_s3_object.finnhub_openapi_spec[0].etag
     secret_arn        = aws_secretsmanager_secret.finnhub_api_key[0].arn
     project_name      = var.project_name
@@ -422,9 +440,10 @@ resource "null_resource" "finnhub_http_target" {
       
       if [ -z "$CREDENTIAL_ARN" ] || [ "$CREDENTIAL_ARN" == "None" ]; then
         echo "Creating new credential provider..."
-        CREDENTIAL_ARN=$(aws bedrock-agentcore-control create-api-key-credential-provider \
+        # Piped through stdin so the key never appears in the process list
+        CREDENTIAL_ARN=$(printf '%s' "$API_KEY" | aws bedrock-agentcore-control create-api-key-credential-provider \
           --name "finnhub-api-key-${var.environment}" \
-          --api-key "$API_KEY" \
+          --api-key file:///dev/stdin \
           --region ${var.aws_region} \
           --query 'credentialProviderArn' \
           --output text)
@@ -465,6 +484,7 @@ resource "null_resource" "finnhub_http_target" {
             }
           }
         }]" \
+        --output json \
         --region ${var.aws_region} 2>&1)
       TARGET_EXIT=$?
       set -e  # Re-enable exit on error
@@ -509,6 +529,13 @@ resource "null_resource" "finnhub_http_target" {
   provisioner "local-exec" {
     when    = destroy
     command = <<-EOT
+      # Resolve the Gateway ID the same way the agent does
+      GATEWAY_ID=$(aws ssm get-parameter \
+        --name "/${self.triggers.project_name}/${self.triggers.environment}/gateway-id" \
+        --query 'Parameter.Value' \
+        --output text \
+        --region ${self.triggers.region} 2>/dev/null || echo "")
+
       # Retrieve Target ID from SSM
       TARGET_ID=$(aws ssm get-parameter \
         --name "/${self.triggers.project_name}/${self.triggers.environment}/finnhub-target-id" \
@@ -517,10 +544,10 @@ resource "null_resource" "finnhub_http_target" {
         --region ${self.triggers.region} 2>/dev/null || echo "")
       
       # Delete Target if ID exists
-      if [ -n "$TARGET_ID" ] && [ "$TARGET_ID" != "None" ]; then
-        echo "Deleting Gateway Target: $TARGET_ID from Gateway: ${self.triggers.gateway_id}"
+      if [ -n "$TARGET_ID" ] && [ "$TARGET_ID" != "None" ] && [ -n "$GATEWAY_ID" ] && [ "$GATEWAY_ID" != "None" ]; then
+        echo "Deleting Gateway Target: $TARGET_ID from Gateway: $GATEWAY_ID"
         aws bedrock-agentcore-control delete-gateway-target \
-          --gateway-identifier "${self.triggers.gateway_id}" \
+          --gateway-identifier "$GATEWAY_ID" \
           --target-id "$TARGET_ID" \
           --region ${self.triggers.region} || true
       else

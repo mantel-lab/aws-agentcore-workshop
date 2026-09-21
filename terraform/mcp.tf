@@ -172,7 +172,7 @@ resource "aws_iam_role_policy" "mcp_logs_access" {
 resource "time_sleep" "mcp_iam_propagation" {
   count = var.enable_mcp_target ? 1 : 0
 
-  create_duration = "10s"
+  create_duration = "30s"
 
   depends_on = [
     aws_iam_role.mcp_runtime,
@@ -303,7 +303,7 @@ resource "null_resource" "mcp_gateway_target" {
   triggers = {
     mcp_runtime_id    = awscc_bedrockagentcore_runtime.mcp[0].id
     mcp_endpoint      = awscc_bedrockagentcore_runtime_endpoint.mcp[0].name
-    gateway_id        = local.gateway_id
+    gateway_instance  = null_resource.gateway[0].id
     project_name      = var.project_name
     environment       = var.environment
     region            = var.aws_region
@@ -394,6 +394,7 @@ resource "null_resource" "mcp_gateway_target" {
             }
           }" \
           --credential-provider-configurations "$CRED_PROVIDER_JSON" \
+          --output json \
           --region ${var.aws_region} 2>&1)
         TARGET_EXIT=$?
         set -e
@@ -460,16 +461,22 @@ resource "null_resource" "mcp_gateway_target" {
   provisioner "local-exec" {
     when    = destroy
     command = <<-EOT
+      GATEWAY_ID=$(aws ssm get-parameter \
+        --name "/${self.triggers.project_name}/${self.triggers.environment}/gateway-id" \
+        --query 'Parameter.Value' \
+        --output text \
+        --region ${self.triggers.region} 2>/dev/null || echo "")
+
       TARGET_ID=$(aws ssm get-parameter \
         --name "/${self.triggers.project_name}/${self.triggers.environment}/mcp-target-id" \
         --query 'Parameter.Value' \
         --output text \
         --region ${self.triggers.region} 2>/dev/null || echo "")
 
-      if [ -n "$TARGET_ID" ] && [ "$TARGET_ID" != "None" ]; then
+      if [ -n "$TARGET_ID" ] && [ "$TARGET_ID" != "None" ] && [ -n "$GATEWAY_ID" ] && [ "$GATEWAY_ID" != "None" ]; then
         echo "Removing MCP Gateway target: $TARGET_ID"
         aws bedrock-agentcore-control delete-gateway-target \
-          --gateway-identifier "${self.triggers.gateway_id}" \
+          --gateway-identifier "$GATEWAY_ID" \
           --target-id "$TARGET_ID" \
           --region ${self.triggers.region} || true
       fi

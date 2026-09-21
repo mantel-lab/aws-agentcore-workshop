@@ -164,11 +164,15 @@ resource "aws_iam_role_policy" "agent_logs_access" {
         Action = [
           "logs:CreateLogGroup",
           "logs:CreateLogStream",
-          "logs:PutLogEvents",
-          # AgentCore uses this to let X-Ray deliver spans to the agent log group
-          "logs:PutResourcePolicy"
+          "logs:PutLogEvents"
         ]
         Resource = "*"
+      },
+      {
+        # AgentCore uses this to let X-Ray deliver spans to the agent log group
+        Effect   = "Allow"
+        Action   = ["logs:PutResourcePolicy"]
+        Resource = "arn:aws:logs:${var.aws_region}:${local.account_id}:log-group:/aws/bedrock-agentcore/runtimes/*"
       }
     ]
   })
@@ -207,7 +211,7 @@ resource "aws_iam_role_policy" "agent_gateway_access" {
 
 # Allow time for IAM role and policies to propagate
 resource "time_sleep" "iam_propagation" {
-  create_duration = "10s"
+  create_duration = "30s"
 
   depends_on = [
     aws_iam_role.agent_runtime,
@@ -286,8 +290,11 @@ resource "awscc_bedrockagentcore_runtime" "agent" {
     aws_iam_role_policy.agent_xray_access,
     time_sleep.iam_propagation,
     null_resource.build_agent_image,
-    # The container reads the Gateway ID from SSM on startup
-    null_resource.gateway
+    # The container reads the Gateway ID from SSM and loads its tools on startup
+    null_resource.gateway,
+    null_resource.finnhub_http_target,
+    null_resource.lambda_gateway_target,
+    null_resource.mcp_gateway_target
   ]
 }
 

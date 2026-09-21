@@ -167,11 +167,11 @@ resource "null_resource" "lambda_gateway_target" {
   count = (var.enable_gateway && var.enable_lambda_target) ? 1 : 0
 
   triggers = {
-    lambda_arn   = aws_lambda_function.risk_scorer[0].arn
-    gateway_id   = local.gateway_id
-    project_name = var.project_name
-    environment  = var.environment
-    region       = var.aws_region
+    lambda_arn       = aws_lambda_function.risk_scorer[0].arn
+    gateway_instance = null_resource.gateway[0].id
+    project_name     = var.project_name
+    environment      = var.environment
+    region           = var.aws_region
   }
 
   provisioner "local-exec" {
@@ -236,6 +236,7 @@ resource "null_resource" "lambda_gateway_target" {
             }
           }' \
           --credential-provider-configurations '[{"credentialProviderType": "GATEWAY_IAM_ROLE"}]' \
+          --output json \
           --region ${var.aws_region} 2>&1)
 
         TARGET_EXIT=$?
@@ -276,16 +277,22 @@ resource "null_resource" "lambda_gateway_target" {
   provisioner "local-exec" {
     when    = destroy
     command = <<-EOT
+      GATEWAY_ID=$(aws ssm get-parameter \
+        --name "/${self.triggers.project_name}/${self.triggers.environment}/gateway-id" \
+        --query 'Parameter.Value' \
+        --output text \
+        --region ${self.triggers.region} 2>/dev/null || echo "")
+
       TARGET_ID=$(aws ssm get-parameter \
         --name "/${self.triggers.project_name}/${self.triggers.environment}/lambda-target-id" \
         --query 'Parameter.Value' \
         --output text \
         --region ${self.triggers.region} 2>/dev/null || echo "")
 
-      if [ -n "$TARGET_ID" ] && [ "$TARGET_ID" != "None" ]; then
+      if [ -n "$TARGET_ID" ] && [ "$TARGET_ID" != "None" ] && [ -n "$GATEWAY_ID" ] && [ "$GATEWAY_ID" != "None" ]; then
         echo "Removing Lambda Gateway target: $TARGET_ID"
         aws bedrock-agentcore-control delete-gateway-target \
-          --gateway-identifier "${self.triggers.gateway_id}" \
+          --gateway-identifier "$GATEWAY_ID" \
           --target-id "$TARGET_ID" \
           --region ${self.triggers.region} || true
       fi
