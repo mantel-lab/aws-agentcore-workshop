@@ -119,13 +119,13 @@ resource "aws_s3_object" "finnhub_openapi_spec" {
         get = {
           operationId = "get_stock_price"
           summary     = "Get stock quote"
-          description = "Retrieves current stock price and trading data for a ticker symbol"
+          description = "Retrieves current stock price and trading data for a US-listed ticker symbol. Prices are in USD."
           parameters = [
             {
               name        = "symbol"
               in          = "query"
               required    = true
-              description = "Stock ticker symbol (e.g., AAPL, MSFT, TSLA)"
+              description = "US-listed stock ticker symbol (e.g., NVDA, MSFT, TSLA). The Finnhub free tier does not serve non-US symbols such as ASX '.AX' tickers."
               schema = {
                 type = "string"
               }

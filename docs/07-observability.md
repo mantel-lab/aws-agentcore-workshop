@@ -311,10 +311,10 @@ python scripts/test-trace.py
 **Example query sent:**
 
 ```
-I'm meeting with a new client tomorrow. They're interested in BHP Group (BHP.AX).
+I'm meeting with a new client tomorrow. They're interested in Microsoft (MSFT).
 
 Can you help me prepare a brief that includes:
-1. Current stock price for BHP.AX
+1. Current stock price for MSFT
 2. Suitability assessment for a conservative investor
 3. Any Australian market holidays coming up in the next 7 days
 ```
@@ -517,7 +517,7 @@ aws logs tail /aws/bedrock-agentcore/runtime/marketpulse \
   "span_id": "abc123def456",
   "service": "marketpulse-agent",
   "tool_name": "get_stock_price",
-  "tool_args": {"ticker": "BHP.AX"},
+  "tool_args": {"ticker": "MSFT"},
   "duration_ms": 320,
   "status": "success"
 }
@@ -714,10 +714,10 @@ MTTR: 2 minutes to identify, fallback cache activated
 
 **Example audit:**
 ```
-Advisor asks: "Is BHP.AX suitable for conservative client?"
+Advisor asks: "Is MSFT suitable for conservative client?"
 Trace shows:
-1. get_stock_price(BHP.AX) → returned: {price: 45, volatility: 0.18}
-2. assess_suitability(BHP.AX, conservative) → returned: "Clear Match"
+1. get_stock_price(MSFT) → returned: {price: 45, volatility: 0.18}
+2. assess_suitability(MSFT, conservative) → returned: "Clear Match"
 3. LLM synthesised response based on these facts
 Conclusion: Decision explainable and evidence-based
 ```
@@ -1038,7 +1038,7 @@ You've now implemented all seven AgentCore components:
 Continue experimenting:
 
 1. **Try different prompts**
-   - "Compare BHP.AX and CBA.AX for a balanced portfolio"
+   - "Compare MSFT and JNJ for a balanced portfolio"
    - "What tech stocks are suitable for aggressive growth?"
 
 2. **Add more Gateway targets**

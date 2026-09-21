@@ -47,7 +47,7 @@ flowchart TB
 ## The Risk Scorer Lambda
 
 The Lambda function takes:
-- **Stock ticker** - The stock being considered (e.g., BHP.AX, FMG.AX)
+- **Stock ticker** - The stock being considered (e.g., JNJ, NVDA)
 - **Client risk profile** - `conservative`, `moderate`, or `aggressive`
 
 And returns:
@@ -70,12 +70,13 @@ The Lambda is in `lambda/scorer.py`. Open it and review the key sections:
 
 ```python
 # Volatility classification per ticker
+# US-listed only, matching the Finnhub free tier used by the price tool
 VOLATILITY_MAP = {
-    "BHP.AX": "low",
-    "CBA.AX": "low",
-    "CSL.AX": "medium",
-    "FMG.AX": "high",
-    "ZIP.AX": "high",
+    "JNJ": "low",
+    "MSFT": "low",
+    "AAPL": "medium",
+    "NVDA": "high",
+    "TSLA": "high",
     # ...
 }
 
@@ -119,7 +120,7 @@ def assess_client_suitability(ticker: str, risk_profile: str) -> dict:
     This tool is routed through AgentCore Gateway to the risk scorer Lambda.
 
     Args:
-        ticker:       Stock ticker symbol (e.g., BHP.AX, FMG.AX)
+        ticker:       Stock ticker symbol (e.g., JNJ, NVDA)
         risk_profile: Client risk profile - conservative, moderate, or aggressive
 
     Returns:
@@ -194,37 +195,37 @@ python scripts/test-risk.py
 
 The script runs four test scenarios covering different investor profiles:
 
-**Conservative investor + Apple (low volatility):**
+**Conservative investor + Johnson & Johnson (low volatility):**
 
 ```
-Query: I'm meeting with Sarah Chen, a conservative investor. Is Apple suitable?
+Query: I'm meeting with Sarah Chen, a conservative investor. Is Johnson & Johnson (JNJ) suitable for her portfolio?
 
 Agent Response:
 Sarah Chen - Conservative Investor
 
-Stock: BHP Group (BHP.AX)
+Stock: Johnson & Johnson (JNJ)
 Current Price: $184.25
 
 Suitability: Clear Match
 
-Apple is an established company with stable earnings and low price volatility,
-well aligned with Sarah's capital preservation goals.
+Johnson & Johnson is an established company with stable earnings and low price
+volatility, well aligned with Sarah's capital preservation goals.
 
 Recommendation: Appropriate for her portfolio.
 ```
 
-**Conservative investor + Fortescue Metals (high volatility):**
+**Conservative investor + NVIDIA (high volatility):**
 
 ```
-Query: Is Fortescue Metals suitable for a conservative investor?
+Query: Is NVIDIA (NVDA) appropriate for a conservative investor?
 
 Agent Response:
-Fortescue Metals (FMG.AX) Suitability Assessment - Conservative Profile
+NVIDIA (NVDA) Suitability Assessment - Conservative Profile
 
 Suitability: Not Suitable
 
-Fortescue Metals' high price volatility is inappropriate for a conservative portfolio
-focused on capital preservation. Consider stable alternatives like BHP.AX or CBA.AX.
+NVIDIA's high price volatility is inappropriate for a conservative portfolio
+focused on capital preservation. Consider stable alternatives like JNJ or MSFT.
 ```
 
 You can also run ad-hoc queries directly:
@@ -245,9 +246,9 @@ Look for log entries showing the assessment:
 
 ```
 START RequestId: abc-123
-[INFO] Risk scorer invoked with event: {"ticker": "BHP.AX", "risk_profile": "conservative"}
-[INFO] Ticker=BHP.AX volatility=low risk_profile=conservative
-[INFO] Assessment result: {"ticker": "BHP.AX", "suitability": "clear_match", ...}
+[INFO] Risk scorer invoked with event: {"ticker": "JNJ", "risk_profile": "conservative"}
+[INFO] Ticker=JNJ volatility=low risk_profile=conservative
+[INFO] Assessment result: {"ticker": "JNJ", "suitability": "clear_match", ...}
 END RequestId: abc-123
 REPORT Duration: 12ms Billed Duration: 13ms Memory: 128MB Max Memory: 48MB
 ```

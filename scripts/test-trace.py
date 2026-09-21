@@ -142,10 +142,10 @@ def main() -> int:
     print("-" * 60)
     
     # This query is designed to trigger all available tools for comprehensive tracing
-    query = """I'm meeting with a new client tomorrow. They're interested in BHP Group (BHP.AX).
+    query = """I'm meeting with a new client tomorrow. They're interested in Microsoft (MSFT).
     
 Can you help me prepare a brief that includes:
-1. Current stock price for BHP.AX
+1. Current stock price for MSFT
 2. Suitability assessment for a conservative investor
 3. Any Australian market holidays coming up in the next 7 days
 

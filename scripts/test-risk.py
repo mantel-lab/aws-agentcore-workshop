@@ -73,20 +73,20 @@ def main() -> int:
         {
             "prompt": (
                 "I'm meeting with Sarah Chen, a conservative investor. "
-                "Is BHP Group (BHP.AX) suitable for her portfolio?"
+                "Is Johnson & Johnson (JNJ) suitable for her portfolio?"
             ),
             "description": "Conservative investor + low volatility stock (expect: clear match)",
         },
         {
             "prompt": (
                 "My client James Wong has an aggressive risk profile. "
-                "He's interested in Fortescue Metals (FMG.AX). What's your assessment?"
+                "He's interested in NVIDIA (NVDA). What's your assessment?"
             ),
             "description": "Aggressive investor + high volatility stock (expect: clear match)",
         },
         {
             "prompt": (
-                "Is Fortescue Metals (FMG.AX) appropriate for a conservative investor? "
+                "Is NVIDIA (NVDA) appropriate for a conservative investor? "
                 "The client wants capital preservation above all else."
             ),
             "description": "Conservative investor + high volatility stock (expect: not suitable)",
@@ -140,7 +140,7 @@ def main() -> int:
     print("Next steps:")
     print("  - Review Lambda execution logs:")
     print(f"      aws logs tail /aws/lambda/{lambda_name} --follow")
-    print("  - Try other tickers: CBA.AX, CSL.AX, WES.AX, RIO.AX")
+    print("  - Try other tickers: MSFT, KO, AAPL, XOM")
     print("  - Proceed to Module 4 to add the market calendar MCP server")
     print()
 

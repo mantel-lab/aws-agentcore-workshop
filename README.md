@@ -6,7 +6,7 @@ A hands-on workshop for FSI engineering teams to learn AWS Bedrock AgentCore by 
 
 MarketPulse is a conversational assistant for financial advisors. Before a client meeting, an advisor can ask:
 
-> "I'm meeting Sarah Chen at 2pm today. She's a conservative investor and she's interested in BHP Group. Can you give me a quick brief?"
+> "I'm meeting Sarah Chen at 2pm today. She's a conservative investor and she's interested in Microsoft. Can you give me a quick brief?"
 
 MarketPulse responds with:
 - Current stock price from a live API
@@ -388,7 +388,11 @@ Verifies the agent runtime responds to basic prompts.
 ```bash
 python scripts/test-stock.py
 ```
-Tests HTTP Gateway target with Finnhub API integration.
+Tests HTTP Gateway target with Finnhub API integration. The Finnhub free tier serves
+US-listed equities only, so the workshop uses US tickers (NVDA, MSFT, TSLA, JNJ);
+ASX symbols such as `BHP.AX` return HTTP 403. The script compares every price in the
+agent's answer against a live Finnhub quote and fails if the agent reports a price it
+did not retrieve.
 
 ### Module 3: Risk Assessment Tool
 ```bash
@@ -444,7 +448,7 @@ Confirm your deployment is production-ready:
 - [ ] `terraform validate` passes with no errors
 - [ ] All test scripts execute successfully
 - [ ] Agent responds with relevant information (not generic responses)
-- [ ] Stock prices are current (not placeholders)
+- [ ] Stock prices are current and verified against a live Finnhub quote (`test-stock.py` reports `verified`, not `hallucinated`)
 - [ ] Risk assessments match client profile
 - [ ] Market calendar shows real holidays from Nager.Date API
 - [ ] Memory persists details across separate invocations

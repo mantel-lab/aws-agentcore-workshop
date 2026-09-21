@@ -8,7 +8,7 @@ In a production FSI system, this would plug into proprietary risk models.
 For the workshop, a rule-based matrix illustrates the concept clearly.
 
 Input:
-    ticker:       Stock ticker symbol (e.g., BHP.AX, CBA.AX)
+    ticker:       Stock ticker symbol (e.g., NVDA, JNJ)
     risk_profile: Client profile - "conservative", "moderate", or "aggressive"
 
 Output:
@@ -28,21 +28,24 @@ logger.setLevel(logging.INFO)
 # ---------------------------------------------------------------------------
 # Volatility classification
 # Simplified for workshop clarity - production systems use rolling std dev
-# ASX-listed companies for Australian financial advisors
+# US-listed tickers only: the Finnhub free tier does not serve ASX (.AX) quotes,
+# so the risk scorer and the price tool cover the same universe.
 # ---------------------------------------------------------------------------
 VOLATILITY_MAP: dict[str, str] = {
-    "BHP.AX": "low",
-    "CBA.AX": "low",
-    "WBC.AX": "low",
-    "CSL.AX": "low",
-    "WES.AX": "low",
-    "RIO.AX": "medium",
-    "WOW.AX": "medium",
-    "TLS.AX": "medium",
-    "FMG.AX": "high",
-    "A2M.AX": "high",
-    "ZIP.AX": "high",
-    "LYC.AX": "high",
+    "JNJ": "low",
+    "KO": "low",
+    "PG": "low",
+    "WMT": "low",
+    "MSFT": "low",
+    "AAPL": "medium",
+    "GOOGL": "medium",
+    "AMZN": "medium",
+    "XOM": "medium",
+    "NVDA": "high",
+    "TSLA": "high",
+    "AMD": "high",
+    "COIN": "high",
+    "PLTR": "high",
 }
 
 # ---------------------------------------------------------------------------

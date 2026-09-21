@@ -76,7 +76,7 @@ def main() -> int:
         },
         {
             "prompt": (
-                "I'm planning to execute a large BHP.AX trade for a client on Monday. "
+                "I'm planning to execute a large NVDA trade for a client on Monday. "
                 "Are there any market closures in the next 40 days that could affect timing?"
             ),
             "description": "Trade timing + holiday awareness",
@@ -84,7 +84,7 @@ def main() -> int:
         {
             "prompt": (
                 "Check Australian market holidays for the next 14 days. "
-                "My client wants to buy CBA.AX and needs to know the best week to act."
+                "My client wants to buy MSFT and needs to know the best week to act."
             ),
             "description": "Australian market holidays over 2-week window",
         },

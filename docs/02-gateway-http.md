@@ -59,9 +59,15 @@ flowchart TB
 - **Real-time data** - Current prices, day ranges, trading volume
 - **Simple API** - Single endpoint for quote data
 
+**Free tier covers US-listed equities only.** ASX symbols such as `BHP.AX` return
+HTTP 403. The workshop therefore uses US tickers (NVDA, MSFT, TSLA, JNJ). This is a
+realistic constraint: data entitlements differ by venue, and an agent needs to handle
+a tool that legitimately cannot answer. Module 2 covers what the agent does when the
+tool fails.
+
 **API endpoint:**
 ```
-GET https://finnhub.io/api/v1/quote?symbol=BHP.AX&token=YOUR_API_KEY
+GET https://finnhub.io/api/v1/quote?symbol=NVDA&token=YOUR_API_KEY
 ```
 
 **Response:**
@@ -103,7 +109,7 @@ def get_stock_price(symbol: str) -> dict:
     This tool is routed through AgentCore Gateway to the Finnhub API.
     
     Args:
-        symbol: Stock ticker symbol (e.g., BHP.AX, CBA.AX, FMG.AX)
+        symbol: Stock ticker symbol (e.g., NVDA, MSFT, TSLA)
         
     Returns:
         dict: Stock quote data with current price, day range, etc.
@@ -204,7 +210,7 @@ Use the dedicated stock price test script:
 python scripts/test-stock.py
 ```
 
-This script runs three queries against the agent: a single stock price, a multi-stock comparison, and a trading range query.
+This script runs four queries against the agent: a single stock price, a multi-stock comparison, a trading range query, and an ASX ticker the free tier cannot serve.
 
 **Expected output:**
 
@@ -219,12 +225,12 @@ Retrieving agent configuration from Terraform outputs...
 
 Running stock price tests...
 
-Test 1/3: Single stock price query
-Query: What is the current price of BHP Group stock (BHP.AX)?
+Test 1/4: Single stock price query
+Query: What is the current price of NVIDIA stock (NVDA)?
 
 Agent Response:
 ----------------------------------------------------------------------
-BHP Group (BHP.AX) - Current Market Data
+NVIDIA (NVDA) - Current Market Data
 
 Current Price: $184.25
 Day Range: $182.50 - $185.10
@@ -237,6 +243,25 @@ Data sourced from Finnhub (real-time).
 ```
 
 For multi-stock comparisons - the agent calls `get_stock_price` once per ticker and consolidates the results.
+
+The fourth query asks for `BHP.AX`, which the free tier does not serve. The agent
+should report that the price is unavailable rather than produce a number.
+
+### How the test detects invented prices
+
+A confident-sounding answer is not evidence the tool ran. `scripts/test-stock.py`
+fetches a quote straight from Finnhub and compares it against the figures in the
+agent's answer:
+
+```
+Price verification (agent answer vs live Finnhub quote):
+  [ok  ] NVDA: verified - agent quoted 184.25 vs live 184.25
+  [FAIL] BHP.AX: hallucinated - HTTP 403 from Finnhub, but the agent still quoted figures: [40.49]
+```
+
+A `hallucinated` or `no_price` result exits non-zero. Without this check, a broken
+Gateway target looks like a passing test, because the model falls back to prices
+remembered from training data.
 
 ## Step 6: Inspect Agent Logs
 
@@ -252,7 +277,7 @@ Replace `marketpulse_workshop_agent` with your actual runtime name if you change
 **What to look for:**
 
 ```
-[INFO] MarketPulse received query: What is the current price of BHP Group stock (BHP.AX)?
+[INFO] MarketPulse received query: What is the current price of NVIDIA stock (NVDA)?
 [INFO] Tools available: 1
 [INFO] Gateway enabled - stock price tool available
 ```
@@ -313,13 +338,13 @@ The `operationId` (`get_stock_price`) is the link between the Python function an
 
 ### The Bridge
 
-The Gateway target is registered via AWS CLI (inside a Terraform `null_resource` in `gateway.tf`). When the agent asks to call `get_stock_price("BHP.AX")`:
+The Gateway target is registered via AWS CLI (inside a Terraform `null_resource` in `gateway.tf`). When the agent asks to call `get_stock_price("NVDA")`:
 
 1. AgentCore intercepts the call before the Python body executes
 2. Looks up the Gateway target whose `operationId` matches `get_stock_price`
 3. Maps the `symbol` argument to the `symbol` query parameter
 4. Retrieves the API key from Secrets Manager
-5. Sends `GET https://finnhub.io/api/v1/quote?symbol=BHP.AX&token=xxx`
+5. Sends `GET https://finnhub.io/api/v1/quote?symbol=NVDA&token=xxx`
 6. Returns the response to the agent
 
 The agent code never handles URLs, API keys, or HTTP responses directly.
@@ -333,7 +358,7 @@ The AWSCC provider does not yet have full Gateway support. Terraform `null_resou
 - [ ] Finnhub API key added to `terraform.tfvars`
 - [ ] `enable_gateway = true` and `enable_http_target = true` in `terraform.tfvars`
 - [ ] `terraform apply` completed with `finnhub_target_configured = true` in outputs
-- [ ] `python scripts/test-stock.py` returns real stock prices
+- [ ] `python scripts/test-stock.py` returns real stock prices and reports `verified` for each US ticker
 - [ ] Agent logs visible in CloudWatch with received queries
 
 ## Common Issues
@@ -365,6 +390,16 @@ aws secretsmanager get-secret-value \
 # If wrong, update terraform.tfvars with the correct key and re-apply
 cd terraform && terraform apply
 ```
+
+### Test reports "hallucinated" prices
+
+**Cause:** The agent answered with a price it did not retrieve. Either the tool call
+failed (check CloudWatch for the Gateway invocation) or the ticker is outside the
+Finnhub free tier and the model filled the gap from training data.
+
+**Solution:** Confirm the Gateway target is healthy and use US tickers. The system
+prompt already instructs the agent to report unavailable data rather than estimate;
+if it still invents figures, the tool result is probably not reaching the model.
 
 ### Rate limit errors from Finnhub
 
@@ -433,7 +468,7 @@ In [Module 3](03-gateway-lambda.md), you'll add a Lambda target for risk assessm
 
 **Before proceeding:**
 
-- Test multiple stock tickers (BHP.AX, CBA.AX, FMG.AX, CSL.AX)
+- Test multiple stock tickers (NVDA, MSFT, TSLA, JNJ)
 - Verify the agent references current prices, not training data values
 - Check CloudWatch Logs to confirm the agent is receiving your queries
 

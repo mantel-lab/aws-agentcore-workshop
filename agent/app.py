@@ -68,10 +68,11 @@ def get_stock_price(symbol: str) -> dict:
     """
     Retrieves current stock price and trading data for a ticker symbol.
     
-    This tool is routed through AgentCore Gateway to the Finnhub API.
+    This tool is routed through AgentCore Gateway to the Finnhub API, which serves
+    US-listed equities only. Prices are in USD.
     
     Args:
-        symbol: Stock ticker symbol (e.g., AAPL, MSFT, TSLA)
+        symbol: US-listed ticker symbol (e.g., NVDA, MSFT, TSLA)
         
     Returns:
         dict: Stock quote data with current price, day range, etc.
@@ -175,9 +176,19 @@ if has_mcp_tool:
     guidelines.append("When discussing trade timing, check for upcoming market holidays. Alert the advisor to any closures that could affect execution.")
 
 if has_stock_tool:
-    guidelines.append("When providing stock prices, always cite the ticker symbol and mention that data is real-time from Finnhub.")
+    guidelines.append(
+        "Every price you state must come from a get_stock_price call made during this turn. "
+        "Never estimate a price, never recall one from training data, and never reuse a price "
+        "from earlier in the conversation without calling the tool again."
+    )
+    guidelines.append(
+        "Quote prices in USD and cite the ticker symbol. The Finnhub free tier covers US-listed "
+        "equities only, so ASX tickers such as BHP.AX return an access error or zeroed quote. "
+        "When that happens, say the price is unavailable and why, and suggest a US-listed "
+        "alternative if one exists. Do not fill the gap with a made-up number."
+    )
 else:
-    guidelines.append("In this initial version, you don't have access to live data tools yet. Provide general guidance based on your training data knowledge.")
+    guidelines.append("In this initial version, you don't have access to live data tools yet. Provide general guidance based on your training data knowledge, and state clearly that any figure you mention is illustrative rather than live market data.")
 
 system_prompt = f"{base_prompt}\n" + "\n".join(tool_descriptions) + "\n\n" + "\n".join(guidelines)
 

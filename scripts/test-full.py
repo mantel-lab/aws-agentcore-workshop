@@ -20,7 +20,14 @@ import uuid
 from pathlib import Path
 
 # Import shared test utilities
-from test_utils import get_terraform_output, invoke_agent, get_project_paths
+from test_utils import (
+    get_project_paths,
+    get_terraform_output,
+    invoke_agent,
+    load_finnhub_api_key,
+    report_verification,
+    verify_stock_price,
+)
 
 
 def print_trace_guide(region: str):
@@ -168,7 +175,7 @@ def main() -> int:
     print("Sarah Chen at 2pm. She's 45 years old, conservative risk")
     print("profile, and interested in established tech companies.")
     print()
-    print("You need to prepare a brief on BHP.AX that includes:")
+    print("You need to prepare a brief on MSFT that includes:")
     print("- Current stock price")
     print("- Suitability assessment for her risk profile")
     print("- Any upcoming Australian market holidays that might affect trading")
@@ -178,7 +185,7 @@ def main() -> int:
     query = """I'm meeting Sarah Chen at 2pm. She's 45 years old with a conservative 
 risk profile and is interested in established tech companies for her retirement portfolio. 
 
-Can you help me prepare a brief on BHP.AX that includes:
+Can you help me prepare a brief on MSFT that includes:
 1. Current stock price
 2. Suitability assessment for her conservative profile
 3. Any Australian market holidays coming up in the next 7 days that might affect trading
@@ -207,6 +214,16 @@ Keep it concise - I need this for a quick pre-meeting review."""
         print()
         print("=" * 60)
         print()
+
+        verification = verify_stock_price(
+            result["response"], "MSFT", load_finnhub_api_key(project_root)
+        )
+        if not report_verification([verification]):
+            print("Full end-to-end test FAILED: the brief quotes a price the agent")
+            print("did not retrieve from the Gateway.")
+            print()
+            return 1
+
         print("✓ Full end-to-end test completed successfully!")
         print()
         print(f"Session ID: {result['session_id']}")
