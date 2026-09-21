@@ -457,6 +457,34 @@ resource "null_resource" "finnhub_http_target" {
       fi
       
       # Create Gateway target with OpenAPI spec
+      # A target of this name may survive from an earlier configuration. Remove it
+      # so the current spec and credentials are the ones that take effect.
+      EXISTING_TARGET=$(aws bedrock-agentcore-control list-gateway-targets \
+        --gateway-identifier "$GATEWAY_ID" \
+        --region ${var.aws_region} \
+        --output json 2>/dev/null | jq -r '.items[]? | select(.name=="get-stock-price") | .targetId')
+
+      if [ -n "$EXISTING_TARGET" ]; then
+        echo "Replacing existing target: $EXISTING_TARGET"
+        aws bedrock-agentcore-control delete-gateway-target \
+          --gateway-identifier "$GATEWAY_ID" \
+          --target-id "$EXISTING_TARGET" \
+          --region ${var.aws_region} > /dev/null 2>&1 || true
+
+        WAIT_ATTEMPT=1
+        while [ $WAIT_ATTEMPT -le 12 ]; do
+          STILL_PRESENT=$(aws bedrock-agentcore-control list-gateway-targets \
+            --gateway-identifier "$GATEWAY_ID" \
+            --region ${var.aws_region} \
+            --output json 2>/dev/null | jq -r '.items[]? | select(.name=="get-stock-price") | .targetId')
+          if [ -z "$STILL_PRESENT" ]; then
+            break
+          fi
+          sleep 5
+          WAIT_ATTEMPT=$((WAIT_ATTEMPT + 1))
+        done
+      fi
+
       echo "Creating Gateway target..."
       
       # Run command and capture output and exit code separately

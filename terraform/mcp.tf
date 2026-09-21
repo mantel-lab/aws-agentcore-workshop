@@ -336,21 +336,38 @@ resource "null_resource" "mcp_gateway_target" {
       echo "Registering MCP server target with Gateway: $GATEWAY_ID"
       echo "MCP Endpoint URL: $MCP_ENDPOINT_URL"
 
-      # Check whether the target already exists
+      # Remove any target of this name left from an earlier configuration, so a
+      # change of authentication or endpoint is actually applied.
       EXISTING_ID=$(aws bedrock-agentcore-control list-gateway-targets \
         --gateway-identifier "$GATEWAY_ID" \
         --region ${var.aws_region} \
-        --query 'items[?name==`market-calendar`].targetId | [0]' \
-        --output text 2>/dev/null || echo "")
+        --output json 2>/dev/null | jq -r '.items[]? | select(.name=="market-calendar") | .targetId')
 
-      if [ -n "$EXISTING_ID" ] && [ "$EXISTING_ID" != "None" ]; then
-        TARGET_ID="$EXISTING_ID"
-        echo "MCP target already exists: $TARGET_ID"
-      else
-        echo "Creating MCP_SERVER gateway target..."
+      if [ -n "$EXISTING_ID" ]; then
+        echo "Replacing existing MCP target: $EXISTING_ID"
+        aws bedrock-agentcore-control delete-gateway-target \
+          --gateway-identifier "$GATEWAY_ID" \
+          --target-id "$EXISTING_ID" \
+          --region ${var.aws_region} > /dev/null 2>&1 || true
 
-        # Module 6: OAuth authentication (requires AgentCore Identity credential provider)
-        # Module 4: IAM role authentication (simpler, no separate OAuth setup)
+        WAIT_ATTEMPT=1
+        while [ $WAIT_ATTEMPT -le 12 ]; do
+          STILL_PRESENT=$(aws bedrock-agentcore-control list-gateway-targets \
+            --gateway-identifier "$GATEWAY_ID" \
+            --region ${var.aws_region} \
+            --output json 2>/dev/null | jq -r '.items[]? | select(.name=="market-calendar") | .targetId')
+          if [ -z "$STILL_PRESENT" ]; then
+            break
+          fi
+          sleep 5
+          WAIT_ATTEMPT=$((WAIT_ATTEMPT + 1))
+        done
+      fi
+
+      echo "Creating MCP_SERVER gateway target..."
+
+      # Module 6: OAuth authentication (requires AgentCore Identity credential provider)
+      # Module 4: IAM role authentication (simpler, no separate OAuth setup)
         if [ "${var.enable_identity}" = "true" ]; then
           echo "Using OAuth 2.0 authentication (enable_identity=true)"
           
@@ -413,7 +430,6 @@ resource "null_resource" "mcp_gateway_target" {
         else
           TARGET_ID=$(echo "$TARGET_OUTPUT" | jq -r '.targetId // .target.targetId // empty')
         fi
-      fi
 
       if [ -z "$TARGET_ID" ] || [ "$TARGET_ID" = "None" ]; then
         echo "Error: Failed to get valid MCP Target ID"
@@ -422,10 +438,24 @@ resource "null_resource" "mcp_gateway_target" {
 
       # Trigger MCP tool discovery. AgentCore calls the server's tools/list endpoint
       # and builds a searchable catalogue for agents to query.
-      # The MCP runtime is cold straight after creation, so the first tools/list
-      # call fails and the catalogue stays empty. Wait, then retry.
-      echo "Waiting for the MCP runtime to warm up before synchronising..."
-      sleep 60
+      # A cold runtime cannot answer tools/list, so wait for it to report READY.
+      echo "Waiting for the MCP runtime to become ready..."
+      READY_ATTEMPT=1
+      while [ $READY_ATTEMPT -le 20 ]; do
+        RUNTIME_STATUS=$(aws bedrock-agentcore-control get-agent-runtime \
+          --agent-runtime-id "${awscc_bedrockagentcore_runtime.mcp[0].id}" \
+          --region ${var.aws_region} \
+          --output json 2>/dev/null | jq -r '.status // empty')
+
+        if [ "$RUNTIME_STATUS" = "READY" ]; then
+          echo "MCP runtime is READY"
+          break
+        fi
+
+        echo "MCP runtime status: $${RUNTIME_STATUS:-unknown}, waiting..."
+        sleep 15
+        READY_ATTEMPT=$((READY_ATTEMPT + 1))
+      done
 
       SYNC_ATTEMPT=1
       SYNC_DONE=false

@@ -59,10 +59,17 @@ resource "aws_iam_role_policy" "agent_memory_access" {
           "bedrock-agentcore:ListEvents",
           "bedrock-agentcore:GetEvent",
           "bedrock-agentcore:CreateEvent",
-          "bedrock-agentcore:DeleteEvent"
+          "bedrock-agentcore:DeleteEvent",
+          # Long-term memory retrieval used by the Strands session manager
+          "bedrock-agentcore:RetrieveMemoryRecords",
+          "bedrock-agentcore:ListMemoryRecords",
+          "bedrock-agentcore:GetMemoryRecord",
+          "bedrock-agentcore:ListSessions",
+          "bedrock-agentcore:ListActors"
         ]
         Resource = [
-          awscc_bedrockagentcore_memory.advisor_memory[0].memory_arn
+          awscc_bedrockagentcore_memory.advisor_memory[0].memory_arn,
+          "${awscc_bedrockagentcore_memory.advisor_memory[0].memory_arn}/*"
         ]
       }
     ]

@@ -191,19 +191,36 @@ resource "null_resource" "lambda_gateway_target" {
 
       echo "Registering Lambda target with Gateway: $GATEWAY_ID"
 
-      # Check if the target already exists
+      # Remove any target of this name left from an earlier configuration, so a
+      # change to the tool schema or Lambda ARN is actually applied.
       EXISTING_ID=$(aws bedrock-agentcore-control list-gateway-targets \
         --gateway-identifier "$GATEWAY_ID" \
         --region ${var.aws_region} \
-        --query 'items[?name==`assess-risk-profile`].targetId | [0]' \
-        --output text 2>/dev/null || echo "")
+        --output json 2>/dev/null | jq -r '.items[]? | select(.name=="assess-risk-profile") | .targetId')
 
-      if [ -n "$EXISTING_ID" ] && [ "$EXISTING_ID" != "None" ]; then
-        TARGET_ID="$EXISTING_ID"
-        echo "Lambda target already exists: $TARGET_ID"
-      else
-        echo "Creating Lambda Gateway target..."
-        TARGET_OUTPUT=$(aws bedrock-agentcore-control create-gateway-target \
+      if [ -n "$EXISTING_ID" ]; then
+        echo "Replacing existing Lambda target: $EXISTING_ID"
+        aws bedrock-agentcore-control delete-gateway-target \
+          --gateway-identifier "$GATEWAY_ID" \
+          --target-id "$EXISTING_ID" \
+          --region ${var.aws_region} > /dev/null 2>&1 || true
+
+        WAIT_ATTEMPT=1
+        while [ $WAIT_ATTEMPT -le 12 ]; do
+          STILL_PRESENT=$(aws bedrock-agentcore-control list-gateway-targets \
+            --gateway-identifier "$GATEWAY_ID" \
+            --region ${var.aws_region} \
+            --output json 2>/dev/null | jq -r '.items[]? | select(.name=="assess-risk-profile") | .targetId')
+          if [ -z "$STILL_PRESENT" ]; then
+            break
+          fi
+          sleep 5
+          WAIT_ATTEMPT=$((WAIT_ATTEMPT + 1))
+        done
+      fi
+
+      echo "Creating Lambda Gateway target..."
+      TARGET_OUTPUT=$(aws bedrock-agentcore-control create-gateway-target \
           --gateway-identifier "$GATEWAY_ID" \
           --name "assess-risk-profile" \
           --target-configuration '{
@@ -239,29 +256,26 @@ resource "null_resource" "lambda_gateway_target" {
           --output json \
           --region ${var.aws_region} 2>&1)
 
-        TARGET_EXIT=$?
+      TARGET_EXIT=$?
 
-        if [ $TARGET_EXIT -ne 0 ]; then
-          if echo "$TARGET_OUTPUT" | grep -q "already exists\|ConflictException"; then
-            TARGET_ID=$(aws bedrock-agentcore-control list-gateway-targets \
-              --gateway-identifier "$GATEWAY_ID" \
-              --region ${var.aws_region} \
-              --query 'items[?name==`assess-risk-profile`].targetId | [0]' \
-              --output text)
-          else
-            echo "Error creating Lambda target: $TARGET_OUTPUT"
-            exit 1
-          fi
+      if [ $TARGET_EXIT -ne 0 ]; then
+        if echo "$TARGET_OUTPUT" | grep -q "already exists\|ConflictException"; then
+          TARGET_ID=$(aws bedrock-agentcore-control list-gateway-targets \
+            --gateway-identifier "$GATEWAY_ID" \
+            --region ${var.aws_region} \
+            --output json | jq -r '.items[]? | select(.name=="assess-risk-profile") | .targetId')
         else
-          TARGET_ID=$(echo "$TARGET_OUTPUT" | jq -r '.targetId // .target.targetId // empty')
+          echo "Error creating Lambda target: $TARGET_OUTPUT"
+          exit 1
         fi
+      else
+        TARGET_ID=$(echo "$TARGET_OUTPUT" | jq -r '.targetId // .target.targetId // empty')
       fi
 
       if [ -z "$TARGET_ID" ] || [ "$TARGET_ID" = "None" ]; then
         echo "Error: Failed to get valid Lambda Target ID"
         exit 1
       fi
-
       # Persist for destroy and outputs
       aws ssm put-parameter \
         --name "/${var.project_name}/${var.environment}/lambda-target-id" \
