@@ -239,10 +239,14 @@ resource "null_resource" "gateway" {
         echo "Using existing Gateway: $GATEWAY_ID"
       else
         # Create new Gateway using AWS CLI with error capture
+        # searchType SEMANTIC builds the tool index that agents query by natural
+        # language. Gateways created without it return empty tool searches, and
+        # switching an existing gateway over does not reliably rebuild the index.
         CREATE_OUTPUT=$(aws bedrock-agentcore-control create-gateway \
           --name "${local.name_prefix}-gateway" \
           --role-arn "${aws_iam_role.gateway[0].arn}" \
           --protocol-type MCP \
+          --protocol-configuration '{"mcp":{"searchType":"SEMANTIC"}}' \
           --authorizer-type AWS_IAM \
           --region ${var.aws_region} 2>&1)
         

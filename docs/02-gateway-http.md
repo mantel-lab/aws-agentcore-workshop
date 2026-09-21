@@ -391,6 +391,21 @@ aws secretsmanager get-secret-value \
 cd terraform && terraform apply
 ```
 
+### Tool search returns no tools, or `tools/call` fails with "internal error"
+
+**Cause:** The Gateway was created without `searchType: SEMANTIC`, so it has no tool
+index for agents to query. Terraform now sets this at creation time.
+
+**Solution:** Gateways created before this setting existed cannot be reliably upgraded
+in place - switching an existing gateway to `SEMANTIC` leaves the index in a state where
+`tools/call` returns an internal error. Destroy and recreate the Gateway:
+
+```bash
+cd terraform
+terraform destroy -target=null_resource.finnhub_http_target -target=null_resource.gateway
+terraform apply
+```
+
 ### Test reports "hallucinated" prices
 
 **Cause:** The agent answered with a price it did not retrieve. Either the tool call
