@@ -216,10 +216,10 @@ resource "aws_secretsmanager_secret_version" "finnhub_api_key" {
 resource "null_resource" "gateway" {
   count = var.enable_gateway ? 1 : 0
 
-  # Trigger recreation when role changes
+  # The Gateway has no dependency on the agent runtime; including runtime_id here
+  # destroyed the Gateway and all its targets whenever the runtime was replaced.
   triggers = {
     role_arn     = aws_iam_role.gateway[0].arn
-    runtime_id   = awscc_bedrockagentcore_runtime.agent.id
     project_name = var.project_name
     environment  = var.environment
     region       = var.aws_region
