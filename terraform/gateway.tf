@@ -354,6 +354,12 @@ resource "null_resource" "finnhub_http_target" {
         --region ${var.aws_region} \
         --query 'SecretString' \
         --output text)
+
+      # --output text prints the literal string None for a missing value
+      if [ -z "$API_KEY" ] || [ "$API_KEY" = "None" ]; then
+        echo "Error: Finnhub API key is empty in Secrets Manager"
+        exit 1
+      fi
       
       # Read Gateway ID from file (created by gateway resource)
       if [ ! -f "${path.module}/.gateway_id" ]; then
@@ -387,6 +393,11 @@ resource "null_resource" "finnhub_http_target" {
           --output text)
       else
         echo "Using existing credential provider: $CREDENTIAL_ARN"
+      fi
+
+      if [ -z "$CREDENTIAL_ARN" ] || [ "$CREDENTIAL_ARN" = "None" ]; then
+        echo "Error: Failed to resolve the Finnhub credential provider ARN"
+        exit 1
       fi
       
       # Create Gateway target with OpenAPI spec
