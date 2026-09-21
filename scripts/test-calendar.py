@@ -129,7 +129,7 @@ def main() -> int:
     print()
     print("Next steps:")
     print("  - Review MCP server logs:")
-    print(f"      aws logs tail /aws/bedrock-agentcore/runtime/{mcp_runtime_name} --follow")
+    print('      aws logs tail "$(terraform output -raw mcp_log_group)" --follow')
     print("  - Try different country codes: AU, US, GB, NZ, JP")
     print("  - Proceed to Module 5 to add persistent memory")
     print()

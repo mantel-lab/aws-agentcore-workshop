@@ -62,7 +62,7 @@ flowchart TB
 
 AgentCore Runtime requires MCP servers to use `streamable-http` transport. The container must listen at `0.0.0.0:8000/mcp`.
 
-**Why not stdio?** Stdio transport requires a persistent stdin/stdout pipe between the client and server. Container runtimes like AgentCore cannot provide this — they communicate over HTTP. Streamable-HTTP is the appropriate transport for server-hosted MCP.
+**Why not stdio?** Stdio transport requires a persistent stdin/stdout pipe between the client and server. Container runtimes like AgentCore cannot provide this - they communicate over HTTP. Streamable-HTTP is the appropriate transport for server-hosted MCP.
 
 ## Step 1: Review the MCP Server Code
 
@@ -95,13 +95,13 @@ if __name__ == "__main__":
 
 **Key points:**
 
-- `@mcp.tool()` is the only decorator needed — FastMCP reads the type annotations and docstring to generate the MCP tool schema automatically
+- `@mcp.tool()` is the only decorator needed - FastMCP reads the type annotations and docstring to generate the MCP tool schema automatically
 - `stateless_http=True` tells FastMCP not to maintain session state; AgentCore Runtime handles session isolation
 - `transport="streamable-http"` is the required transport for AgentCore Runtime
 
 ## Step 2: Review the Dockerfile
 
-The MCP server Dockerfile in `mcp-server/Dockerfile` is similar to the agent Dockerfile but simpler — no Bedrock or OpenTelemetry needed. The server exposes port 8000:
+The MCP server Dockerfile in `mcp-server/Dockerfile` is similar to the agent Dockerfile but simpler - no Bedrock or OpenTelemetry needed. The server exposes port 8000:
 
 ```dockerfile
 EXPOSE 8000
@@ -141,23 +141,21 @@ enable_observability = false
 
 ## Step 5: Build and Deploy
 
-Build and push the MCP server container:
-
-```bash
-./scripts/build-mcp.sh
-```
-
-Apply the Terraform configuration:
+Apply the Terraform configuration. It creates the ECR repository, builds and pushes the
+MCP server image, then deploys the Runtime and registers the Gateway target:
 
 ```bash
 cd terraform
 terraform apply
 ```
 
+Docker must be running, because the apply performs the image build. To rebuild the
+image by hand later, run `./scripts/build-mcp.sh` from the project root.
+
 **What Terraform creates:**
 
 - ECR repository for the MCP server image
-- IAM role for the MCP server Runtime (ECR pull + CloudWatch only — no Bedrock needed)
+- IAM role for the MCP server Runtime (ECR pull + CloudWatch only - no Bedrock needed)
 - Second AgentCore Runtime hosting the MCP server container
 - Runtime Endpoint for the MCP server
 - IAM policy granting the Gateway role permission to invoke the MCP Runtime
@@ -200,7 +198,7 @@ python scripts/test-calendar.py
 **What the script tests:**
 
 1. Basic Australian market holiday check for the current week
-2. Trade timing query — checks for closures before executing a large order
+2. Trade timing query - checks for closures before executing a large order
 3. Australian market holiday lookup over a 14-day window
 
 **Example response:**
@@ -227,10 +225,8 @@ unscheduled closures.
 Check MCP server container logs:
 
 ```bash
-# Get the runtime name from Terraform output
-MCP_RUNTIME=$(cd terraform && terraform output -raw mcp_server_runtime_name)
-
-aws logs tail /aws/bedrock-agentcore/runtime/${MCP_RUNTIME} --follow
+cd terraform
+aws logs tail "$(terraform output -raw mcp_log_group)" --follow
 ```
 
 **What to look for:**
@@ -249,7 +245,7 @@ When you create an MCP_SERVER Gateway target, you provide an **invocation URL**.
 https://bedrock-agentcore.{region}.amazonaws.com/runtimes/{url-encoded-arn}/invocations?qualifier={endpoint-name}
 ```
 
-The Gateway authenticates to this URL using `GATEWAY_IAM_ROLE` — it signs requests with the Gateway's IAM role. The MCP Runtime accepts AWS SigV4 authentication.
+The Gateway authenticates to this URL using `GATEWAY_IAM_ROLE` - it signs requests with the Gateway's IAM role. The MCP Runtime accepts AWS SigV4 authentication.
 
 This is the same URL format used to invoke any AgentCore Runtime, whether it hosts an agent or an MCP server.
 
@@ -270,12 +266,12 @@ Use this to choose the right target type for future tools:
 **Use MCP target** when:
 - You are building a reusable tool service hosted in your own Runtime
 - Multiple related tools belong together in one server
-- You want automatic tool discovery — no manual schema management
+- You want automatic tool discovery - no manual schema management
 
 ## Verification Checklist
 
-- [ ] `./scripts/build-mcp.sh` completes without error
-- [ ] `terraform apply` succeeds — all 8 resources created
+- [ ] `terraform apply` builds and pushes the MCP server image without error
+- [ ] `terraform apply` succeeds - all 8 resources created
 - [ ] `mcp_target_configured = true` in outputs
 - [ ] Agent container rebuilt and pushed with `./scripts/build-agent.sh`
 - [ ] `python scripts/test-calendar.py` returns holiday data
@@ -357,8 +353,8 @@ In [Module 5](05-memory.md), you will enable AgentCore Memory to persist advisor
 
 **Key Takeaways:**
 
-- MCP servers use `streamable-http` transport in AgentCore Runtime — stdio is not supported
+- MCP servers use `streamable-http` transport in AgentCore Runtime - stdio is not supported
 - `stateless_http=True` in FastMCP is required; AgentCore Runtime handles session isolation
-- MCP tool schemas are auto-discovered by the Gateway — no manual schema management
+- MCP tool schemas are auto-discovered by the Gateway - no manual schema management
 - The Gateway authenticates to the MCP Runtime using its IAM role (GATEWAY_IAM_ROLE)
 - The invocation URL format encodes the Runtime ARN in the path

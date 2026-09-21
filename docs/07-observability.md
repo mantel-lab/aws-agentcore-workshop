@@ -174,7 +174,7 @@ log_retention_days   = 7     # CloudWatch log retention
      UNIFIED_TRACES_DESTINATION_ENABLED = "true"
      OTEL_PYTHON_DISTRO = "aws_distro"
      OTEL_TRACES_EXPORTER = "otlp"
-     OTEL_SERVICE_NAME = "marketpulse_workshop_agent"
+     OTEL_SERVICE_NAME = "marketpulse_workshop_dev_agent"
      OTEL_AWS_APPLICATION_SIGNALS_ENABLED = "false"
      # ... and more OTEL config
    }
@@ -296,7 +296,7 @@ Outputs:
 
 observability_enabled = true
 xray_sampling_rule_name = "marketpulse-sampling"
-trace_log_group = "/aws/bedrock-agentcore/traces/marketpulse_workshop_agent"
+trace_log_group = "/aws/bedrock-agentcore/traces/marketpulse_workshop_dev_agent"
 ```
 
 ### Step 6: Generate a Complete Trace
@@ -411,7 +411,7 @@ Rebuild both agent and MCP server:
 
 ```bash
 ./scripts/build-agent.sh
-./scripts/build-mcp-server.sh
+./scripts/build-mcp.sh
 ```
 
 Deploy with Terraform:
@@ -509,7 +509,7 @@ In the trace details, identify each tool call:
 Check CloudWatch logs with trace context:
 
 ```bash
-aws logs tail /aws/bedrock-agentcore/runtime/marketpulse \
+aws logs tail "$(terraform output -raw agent_log_group)" \
   --format short \
   --follow \
   --filter-pattern '{ $.trace_id = * }'

@@ -192,7 +192,7 @@ Each module adds one component to the architecture:
 
 ```python
 # Agent's view
-get_stock_price(ticker: str) -> dict
+get_stock_price(symbol: str) -> dict
 """Get the current price for a stock ticker"""
 ```
 
@@ -262,7 +262,7 @@ This workshop uses a financial services scenario for several reasons:
 Make sure you have:
 
 - [ ] AWS account with Bedrock access
-- [ ] Claude 3 Sonnet model access enabled
+- [ ] Claude Sonnet 4.5 model access enabled
 - [ ] Terraform >= 1.0.7 installed
 - [ ] Python 3.11+ installed
 - [ ] Docker installed and running

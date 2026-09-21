@@ -43,23 +43,4 @@ locals {
       Project     = var.project_name
     }
   )
-
-  # ============================================================================
-  # Container Image URIs
-  # ============================================================================
-
-  agent_image_uri      = "${local.account_id}.dkr.ecr.${local.region}.amazonaws.com/${local.ecr_repository_name}:latest"
-  mcp_server_image_uri = "${local.account_id}.dkr.ecr.${local.region}.amazonaws.com/${local.ecr_mcp_repository_name}:latest"
-
-  # ============================================================================
-  # API Endpoints
-  # ============================================================================
-
-  finnhub_base_url = "https://finnhub.io/api/v1"
-
-  # ============================================================================
-  # CloudWatch
-  # ============================================================================
-
-  log_group_name = "/aws/bedrock/agent/${local.agent_name}"
 }

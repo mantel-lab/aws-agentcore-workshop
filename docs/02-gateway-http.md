@@ -192,8 +192,7 @@ Terraform also updates the Runtime's `ENABLE_GATEWAY` environment variable to `t
 
 ```bash
 cd terraform
-terraform taint awscc_bedrockagentcore_runtime.agent
-terraform apply
+terraform apply -replace=awscc_bedrockagentcore_runtime.agent
 ```
 
 **Expected output:**
@@ -204,7 +203,7 @@ Apply complete! Resources: 8 added, 1 changed, 0 destroyed.
 Outputs:
 
 agent_endpoint_id = "ep-abc123"
-agent_endpoint_name = "marketpulse_workshop_agent_endpoint"
+agent_endpoint_name = "marketpulse_workshop_dev_agent_endpoint"
 agent_runtime_arn = "arn:aws:bedrock-agentcore:ap-southeast-2:123456789012:runtime/runtime-xyz789"
 finnhub_target_configured = true
 gateway_id = <sensitive>
@@ -233,7 +232,7 @@ AWS AgentCore Workshop: Testing Stock Price Tool (Module 2)
 
 Retrieving agent configuration from Terraform outputs...
 ✓ Runtime ARN: arn:aws:bedrock-agentcore:ap-southeast-2:123456789012:runtime/runtime-xyz789
-✓ Endpoint Name: marketpulse_workshop_agent_endpoint
+✓ Endpoint Name: marketpulse_workshop_dev_agent_endpoint
 ✓ Gateway ID: gtw-abc123
 
 Running stock price tests...
@@ -291,11 +290,12 @@ data is what separates a working integration from a convincing one.
 The agent logs its activity to CloudWatch. View them with:
 
 ```bash
-aws logs tail /aws/bedrock/agent/marketpulse_workshop_agent --follow \
+cd terraform
+aws logs tail "$(terraform output -raw agent_log_group)" --follow \
     --region ap-southeast-2
 ```
 
-Replace `marketpulse_workshop_agent` with your actual runtime name if you changed `project_name` or `environment` in `terraform.tfvars`.
+The log group name comes from Terraform, so it follows whatever `project_name` and `environment` you set in `terraform.tfvars`.
 
 **What to look for:**
 
@@ -460,8 +460,7 @@ still invents figures, the tool result is probably not reaching the model.
 **Solution:** Verify `terraform apply` completed cleanly with the Runtime diff showing `ENABLE_GATEWAY` being updated to `true`. If needed, force a Runtime update:
 ```bash
 cd terraform
-terraform taint awscc_bedrockagentcore_runtime.agent
-terraform apply
+terraform apply -replace=awscc_bedrockagentcore_runtime.agent
 ```
 
 ## FSI Relevance: Gateway in Production

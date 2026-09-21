@@ -27,7 +27,7 @@ By completing this workshop, you will:
 ## Prerequisites
 
 **AWS Requirements:**
-- AWS account with Bedrock model access enabled (Claude 3 Sonnet)
+- AWS account with Bedrock model access enabled (Claude Sonnet 4.5)
 - AWS CLI configured with appropriate permissions
 
 **Local Development:**
@@ -136,7 +136,7 @@ cp terraform/terraform.tfvars.example terraform/terraform.tfvars
 # environment       = "dev"
 # aws_region        = "ap-southeast-2"
 # finnhub_api_key   = "your_finnhub_key_here"
-# agent_model_id    = "au.anthropic.claude-sonnet-4-5-20250929-v1:0"
+# bedrock_model_id  = "au.anthropic.claude-sonnet-4-5-20250929-v1:0"
 #
 # Feature flags (enable progressively during workshop):
 # enable_gateway        = false
@@ -209,10 +209,6 @@ python scripts/test-full.py
 When finished with the workshop:
 
 ```bash
-# Option 1: Use provided script (recommended)
-./scripts/destroy.sh
-
-# Option 2: Manual cleanup
 cd terraform
 terraform destroy  # Type 'yes' to confirm
 ```
@@ -224,7 +220,6 @@ terraform destroy  # Type 'yes' to confirm
 ```
 aws-agentcore-workshop/
 ├── README.md                    # This file
-├── DEVELOPMENT_PLAN.md          # Detailed implementation plan
 ├── .env.example                 # Environment variables template
 ├── .gitignore                   # Git exclusions
 ├── terraform/                   # Single Terraform directory
@@ -261,8 +256,7 @@ aws-agentcore-workshop/
 │   ├── test-memory.py
 │   ├── test-trace.py
 │   ├── test-full.py             # Complete end-to-end test
-│   ├── test_utils.py
-│   └── destroy.sh
+│   └── test_utils.py
 └── docs/                        # Module documentation
     ├── 00-introduction.md
     ├── 01-runtime.md
@@ -600,7 +594,8 @@ python scripts/test-auth.py
 2. Verify observability is enabled: `terraform output observability_enabled`
 3. Check CloudWatch logs for trace ID:
    ```bash
-   aws logs tail /aws/bedrock/agent/marketpulse_workshop_agent \
+   cd terraform
+   aws logs tail "$(terraform output -raw agent_log_group)" \
      --region ap-southeast-2 --follow
    ```
 
@@ -657,9 +652,9 @@ terraform {
 If you encounter issues not covered here:
 
 1. **Check CloudWatch Logs:**
-   - Agent: `/aws/bedrock/agent/marketpulse_workshop_agent`
-   - Lambda: `/aws/lambda/marketpulse-workshop-dev-risk-scorer`
-   - MCP Server: `/aws/bedrock/agent/marketpulse_workshop_mcp_server`
+   - Agent: `terraform output -raw agent_log_group`
+   - Lambda: `/aws/lambda/<project_name>-<environment>-risk-scorer`
+   - MCP Server: `terraform output -raw mcp_log_group`
 
 2. **Enable Verbose Logging:**
    Add environment variable to agent Dockerfile:
@@ -681,10 +676,6 @@ To destroy all resources:
 ```bash
 cd terraform
 terraform destroy
-
-# Or use the provided script
-cd ../scripts
-./destroy.sh
 ```
 
 ## Resources
@@ -705,10 +696,9 @@ cd ../scripts
 For workshop support or questions:
 
 1. **Module Documentation:** Review detailed guides in `docs/` directory
-2. **Development Plan:** Check `DEVELOPMENT_PLAN.md` for implementation details
-3. **Troubleshooting:** See expanded troubleshooting section above
-4. **AWS Documentation:** Consult official Bedrock AgentCore documentation
-5. **CloudWatch Logs:** Examine logs for error details (paths listed in troubleshooting)
+2. **Troubleshooting:** See expanded troubleshooting section above
+3. **AWS Documentation:** Consult official Bedrock AgentCore documentation
+4. **CloudWatch Logs:** Examine logs for error details (paths listed in troubleshooting)
 
 **Common Support Scenarios:**
 

@@ -53,6 +53,16 @@ output "agent_endpoint_name" {
   value       = awscc_bedrockagentcore_runtime_endpoint.agent.name
 }
 
+output "agent_log_group" {
+  description = "CloudWatch log group holding the agent's logs and spans"
+  value       = "/aws/bedrock-agentcore/runtimes/${awscc_bedrockagentcore_runtime.agent.id}-${awscc_bedrockagentcore_runtime_endpoint.agent.name}"
+}
+
+output "mcp_log_group" {
+  description = "CloudWatch log group for the MCP server runtime"
+  value       = var.enable_mcp_target ? "/aws/bedrock-agentcore/runtimes/${awscc_bedrockagentcore_runtime.mcp[0].id}-${awscc_bedrockagentcore_runtime_endpoint.mcp[0].name}" : null
+}
+
 # ============================================================================
 # AgentCore Gateway (Module 2+)
 # ============================================================================

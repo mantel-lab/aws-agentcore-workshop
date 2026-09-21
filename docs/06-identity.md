@@ -248,7 +248,7 @@ AWS AgentCore Workshop: Testing OAuth Authentication (Module 6)
 
 Retrieving agent configuration from Terraform outputs...
   Runtime ARN:           arn:aws:bedrock-agentcore:ap-southeast-2:...
-  Endpoint Name:         marketpulse_workshop_agent_endpoint
+  Endpoint Name:         marketpulse_workshop_dev_agent_endpoint
   MCP Configured:        true
   Authentication:        true
 
@@ -432,10 +432,10 @@ terraform apply
 **Solution:**
 ```bash
 # Verify authoriser configuration on MCP Runtime
-aws bedrock-agentcore describe-agent-runtime \
+aws bedrock-agentcore-control get-agent-runtime \
   --agent-runtime-id $(terraform output -raw mcp_server_runtime_id) \
   --region ap-southeast-2 \
-  --query 'agentRuntime.authorizerConfiguration'
+  --query 'authorizerConfiguration'
 
 # Expected output:
 # {
@@ -465,20 +465,26 @@ aws logs tail "/aws/agentcore/gateway/$(terraform output -raw gateway_id)" \
 
 ### Token expired errors
 
-**Cause:** Token expiry too short or refresh disabled.
+**Cause:** The cached access token outlived its expiry and was not refreshed.
 
-**Solution:** Increase expiry in Terraform:
-```hcl
-oauth_token_expiry = 7200  # 2 hours
+**Solution:** The Gateway requests a fresh token from Cognito for each invocation, so
+this usually means the Cognito client secret changed after the credential provider was
+created. Recreate the provider and the MCP target:
+
+```bash
+cd terraform
+terraform apply -replace=null_resource.mcp_oauth_credential_provider -replace=null_resource.mcp_gateway_target
 ```
 
-# Expected: OAuth token acquisition events
-```
+Cognito access tokens last one hour by default. To change that, edit the token validity
+on `aws_cognito_user_pool_client.gateway_m2m` in `identity.tf`.
+
+### Checking token validation
 
 MCP Runtime logs show JWT validation:
 
 ```bash
-aws logs tail "/aws/bedrock/agent/$(terraform output -raw mcp_server_runtime_name)" \
+aws logs tail "$(terraform output -raw mcp_log_group)" \
   --follow --filter-pattern "JWT"
 
 # Expected: Token validation success/failure events

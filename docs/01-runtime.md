@@ -70,47 +70,43 @@ app = BedrockAgentCoreApp()
 model_id = os.environ.get("BEDROCK_MODEL_ID", "au.anthropic.claude-sonnet-4-5-20250929-v1:0")
 model = BedrockModel(model_id=model_id)
 
-# Create the MarketPulse agent
-agent = Agent(
-    model=model,
-    tools=[],  # Tools will be added in later modules
-    system_prompt="""
-You are MarketPulse, an AI investment brief assistant for financial advisors.
 
-Your role is to help advisors prepare for client meetings by providing:
-- Current stock information (when tools are available)
-- Risk assessments based on client profiles (when tools are available)
-- Market calendar information (when tools are available)
+def build_system_prompt(available_tools: list) -> str:
+    """Build the system prompt for the tools available right now."""
+    # With ENABLE_GATEWAY=false there are no tools, so the agent is told to say
+    # that any figure it mentions is illustrative rather than live market data.
+    ...
 
-Always be professional, concise, and focused on actionable insights.
-
-In this initial version, you don't have access to live data tools yet.
-Provide general guidance based on your training data knowledge, and acknowledge
-that you'll have more capabilities as additional modules are enabled.
-"""
-)
 
 @app.entrypoint
 def marketpulse_agent(payload):
     """
     Agent invocation entrypoint.
-    
+
     AgentCore Runtime will call this function with the request payload.
     The payload contains a 'prompt' field with the user's query.
-    
+
     Returns the agent's response as a string.
     """
     user_input = payload.get("prompt")
-    print(f"MarketPulse received query: {user_input}")
-    
+    logger.info(f"MarketPulse received query: {user_input}")
+
+    tools = gateway_tools()          # empty until Module 2 enables the Gateway
+    system_prompt = build_system_prompt(tools)
+
+    agent = Agent(model=model, tools=tools, system_prompt=system_prompt)
     response = agent(user_input)
-    
+
     # Extract text response from Strands agent
     return response.message['content'][0]['text']
 
 if __name__ == "__main__":
     app.run()
 ```
+
+The file contains more than this: the Gateway connection used from Module 2, and the
+memory session handling used from Module 5. Both stay inert while their feature flags
+are `false`, so Module 1 runs a plain conversational agent.
 
 **Key components:**
 
@@ -130,7 +126,9 @@ FROM public.ecr.aws/docker/library/python:3.11-slim
 WORKDIR /app
 
 COPY requirements.txt requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt && \
+RUN apt-get update && apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/* && \
+    pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir "aws-opentelemetry-distro>=0.18.0,<1.0.0"
 
 # Create non-root user for security
@@ -151,6 +149,7 @@ CMD ["opentelemetry-instrument", "python", "app.py"]
 
 **Key Dockerfile features:**
 - Uses AWS public ECR base image
+- Installs curl so the health check can call `/ping`
 - Installs OpenTelemetry for observability (used in Module 7)
 - Runs as non-root user for security
 - Includes health check endpoint that Runtime uses
@@ -168,8 +167,8 @@ Edit `terraform/terraform.tfvars`:
 
 ```hcl
 # Project Configuration
-project_name = "marketpulse"
-environment  = "workshop"
+project_name = "marketpulse-workshop"
+environment  = "dev"
 aws_region   = "ap-southeast-2"
 
 # Bedrock Model
@@ -212,11 +211,8 @@ docker ps  # Should show no errors
 
 **Note:** If you're using Docker Desktop instead of Colima, ensure it's running before proceeding.
 
-The deployment requires a specific order due to dependencies:
-
-**Step 4a: Create ECR Repository**
-
-First, run Terraform to create the ECR repository:
+Terraform builds and pushes the container image as part of the apply, so a single
+command deploys everything:
 
 ```bash
 cd terraform
@@ -225,33 +221,13 @@ terraform plan
 terraform apply
 ```
 
-**Expected behaviour:** The ECR repository will be created, but the Runtime deployment will fail because no container image exists yet. This is expected and correct.
+Terraform creates the ECR repository, runs `scripts/build-container.sh agent` to build
+and push the image, then creates the Runtime from that image. The build step needs a
+running Docker daemon, which is why Colima or Docker Desktop must be up first.
 
-**Step 4b: Build and Push Image**
-
-Now that the ECR repository exists, build and push the Docker image:
-
-```bash
-# From project root
-./scripts/build-agent.sh
-```
-
-This script:
-1. Builds the Docker image
-2. Authenticates Docker to ECR
-3. Tags the image
-4. Pushes to the ECR repository created in Step 4a
-
-**Step 4c: Deploy Runtime**
-
-Finally, run Terraform again to create the Runtime with the now-available image:
-
-```bash
-cd terraform
-terraform apply
-```
-
-This time the Runtime deployment will succeed because the container image exists in ECR.
+**Rebuilding later:** whenever you change `agent/app.py`, `agent/Dockerfile` or
+`agent/requirements.txt`, the next `terraform apply` rebuilds and pushes automatically.
+To rebuild by hand, run `./scripts/build-agent.sh` from the project root.
 
 **What Terraform creates:**
 
@@ -268,12 +244,12 @@ Apply complete! Resources: 6 added, 0 changed, 0 destroyed.
 Outputs:
 
 agent_endpoint_id = "endpoint-abc123"
-agent_endpoint_name = "marketpulse_workshop_agent_endpoint"
+agent_endpoint_name = "marketpulse_workshop_dev_agent_endpoint"
 agent_runtime_arn = "arn:aws:bedrock-agentcore:ap-southeast-2:123456789012:runtime/runtime-xyz789"
 agent_runtime_id = "runtime-xyz789"
 ecr_repository_name = "marketpulse-workshop-agent"
 ecr_repository_url = "123456789012.dkr.ecr.ap-southeast-2.amazonaws.com/marketpulse-workshop-agent"
-runtime_name = "marketpulse_workshop_agent"
+runtime_name = "marketpulse_workshop_dev_agent"
 test_command = "python scripts/test-agent.py"
 next_phase = "Phase 2: Enable gateway and runtime"
 ```
@@ -297,7 +273,7 @@ AWS AgentCore Workshop: Testing MarketPulse Agent
 
 Retrieving agent configuration from Terraform outputs...
 ✓ Runtime ARN: arn:aws:bedrock-agentcore:ap-southeast-2:123456789012:runtime/runtime-xyz789
-✓ Endpoint Name: marketpulse_workshop_agent_endpoint
+✓ Endpoint Name: marketpulse_workshop_dev_agent_endpoint
 
 Sending test prompt: Hello! Can you introduce yourself as MarketPulse?
 
@@ -338,8 +314,9 @@ Content Type: application/json
 View agent logs in CloudWatch:
 
 ```bash
-# Log group format: /aws/bedrock/agent/<agent_name>
-aws logs tail /aws/bedrock/agent/marketpulse_workshop_agent --follow
+# AgentCore writes to /aws/bedrock-agentcore/runtimes/<runtime-id>-<endpoint-name>
+cd terraform
+aws logs tail "$(terraform output -raw agent_log_group)" --follow
 ```
 
 **What to look for:**
@@ -352,7 +329,7 @@ aws logs tail /aws/bedrock/agent/marketpulse_workshop_agent --follow
 
 Alternatively, view logs in the AWS Console:
 1. Navigate to CloudWatch > Log Groups
-2. Select `/aws/bedrock/agent/marketpulse_workshop_agent`
+2. Select the log group printed by `terraform output -raw agent_log_group`
 3. View the latest log stream
 
 **Note:** The actual log group name uses underscores (not hyphens) as required by AWS naming conventions.
@@ -396,7 +373,7 @@ sudo systemctl start docker
 
 **Solution:**
 1. Navigate to AWS Console > Bedrock > Model access
-2. Select "Claude 3 Sonnet"
+2. Select "Claude Sonnet 4.5"
 3. Click "Request model access"
 4. Wait for approval (usually instant)
 
@@ -446,7 +423,7 @@ Later modules will add permissions for Gateway, Memory, etc.
 **Module 1 costs:**
 
 - **AgentCore Runtime** - ~$0.20/hour for a small instance
-- **Bedrock Claude 3 Sonnet** - $3 per 1M input tokens, $15 per 1M output tokens
+- **Bedrock Claude Sonnet 4.5** - $3 per 1M input tokens, $15 per 1M output tokens
 - **CloudWatch Logs** - $0.50/GB ingested
 - **ECR Storage** - $0.10/GB/month
 

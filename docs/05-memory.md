@@ -37,13 +37,13 @@ flowchart TB
     User2[Advisor] -->|Session 2| Agent
     Agent -->|Retrieve| Memory
     
-    Memory -.->|Encrypted| DynamoDB[DynamoDB Table]
+    Memory -.->|Encrypted| Storage[Managed Storage]
     
     classDef runtime fill:#E8EAF6,stroke:#7986CB,color:#3F51B5
     classDef data fill:#E3F2FD,stroke:#64B5F6,color:#1976D2
     
     class Agent runtime
-    class Memory,DynamoDB data
+    class Memory,Storage data
 ```
 
 ## What to Store in Memory
@@ -232,14 +232,16 @@ sleep 30
 3. **Agent container** rebuilt with:
    - Memory integration dependencies
    - `ENABLE_MEMORY=true` environment variable
-   - `MEMORY_ID` set to the memory resource ARN
+   - `MEMORY_ID` set to the memory resource ID
 
 **What Terraform creates:**
 
-- DynamoDB table for memory storage
-- KMS key for encryption
-- IAM permissions for agent to access DynamoDB
-- Memory configuration in AgentCore Runtime
+- An AgentCore Memory resource with its event and long-term strategies
+- IAM permissions for the agent role, scoped to that memory ARN
+- `ENABLE_MEMORY` and `MEMORY_ID` environment variables on the Runtime
+
+AgentCore manages the underlying storage and encryption, so there is no table or key
+for you to create.
 
 **Expected output:**
 
@@ -248,8 +250,9 @@ Apply complete! Resources: 3 added, 1 changed, 0 destroyed.
 
 Outputs:
 
-memory_table_name = "marketpulse-memory-abc123"
-memory_kms_key_id = "arn:aws:kms:ap-southeast-2:123456789012:key/xyz789"
+memory_id = "marketpulse_workshop_advisor_memory-abc123"
+memory_arn = "arn:aws:bedrock-agentcore:ap-southeast-2:123456789012:memory/marketpulse_workshop_advisor_memory-abc123"
+memory_status = "ACTIVE"
 ```
 
 ## Step 4: Test Memory Persistence
@@ -351,8 +354,8 @@ aws bedrock-agentcore get-memory \
                        ↓
 ┌─────────────────────────────────────────────────────────────┐
 │ AgentCore Memory Service                                    │
-│   • DynamoDB table stores events                            │
-│   • Encrypts data at rest with KMS                          │
+│   • Managed storage for conversation events                 │
+│   • Encrypts data at rest                                   │
 │   • Namespaces provide isolation: /clients/{actorId}/      │
 │   • Events expire after 90 days (TTL)                       │
 └─────────────────────────────────────────────────────────────┘
@@ -375,25 +378,32 @@ affecting these stocks this week?
 
 ## Step 6: View Memory Storage
 
-Check DynamoDB for stored data:
+List the events AgentCore stored for an actor:
 
 ```bash
-aws dynamodb get-item \
-    --table-name marketpulse-memory-abc123 \
-    --key '{"agent_id": {"S": "marketpulse"}, "memory_key": {"S": "advisor_context"}}'
+cd terraform
+aws bedrock-agentcore list-events \
+    --memory-id "$(terraform output -raw memory_id)" \
+    --actor-id "advisor-001" \
+    --session-id "<session-id-from-the-test-output>" \
+    --region ap-southeast-2
 ```
 
 **Response:**
 
 ```json
 {
-  "Item": {
-    "agent_id": {"S": "marketpulse"},
-    "memory_key": {"S": "advisor_context"},
-    "data": {"S": "{\"advisor\":{\"name\":\"James Wilson\"},\"clients\":{\"sarah_chen\":{...}}}"},
-    "ttl": {"N": "1750272000"},
-    "updated_at": {"S": "2026-02-18T14:35:00Z"}
-  }
+  "events": [
+    {
+      "eventId": "evt-abc123",
+      "actorId": "advisor-001",
+      "sessionId": "memory-test-session-...",
+      "eventTimestamp": "2026-02-18T14:35:00Z",
+      "payload": [
+        {"conversational": {"role": "USER", "content": {"text": "Sarah Chen is a conservative investor"}}}
+      ]
+    }
+  ]
 }
 ```
 
@@ -506,7 +516,7 @@ invoke_agent(session_id="session-abc123...")  # Same ID
 - Verify namespace has `{actorId}` placeholder in Terraform
 - Check agent logs to confirm correct actor_id:
   ```bash
-  aws logs tail /aws/bedrock-agentcore/runtime/marketpulse_workshop_dev_agent
+  aws logs tail "$(terraform output -raw agent_log_group)"
   # Look for: [INFO] Memory enabled - actor_id: advisor-xxx
   ```
 
@@ -525,7 +535,7 @@ invoke_agent(session_id="session-abc123...")  # Same ID
 
 ### Events not expiring after 90 days
 
-**Cause:** AgentCore Memory handles TTL internally (not visible as DynamoDB TTL attribute).
+**Cause:** AgentCore Memory handles expiry internally, so there is no TTL attribute to inspect.
 
 **Solution:** This is expected behaviour. Check `event_expiry_duration` in memory config:
 ```bash
