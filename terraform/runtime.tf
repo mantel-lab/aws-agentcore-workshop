@@ -193,6 +193,13 @@ resource "aws_iam_role_policy" "agent_gateway_access" {
           "bedrock-agentcore:ListGatewayTargets"
         ]
         Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ssm:GetParameter"
+        ]
+        Resource = "arn:aws:ssm:${var.aws_region}:${local.account_id}:parameter/${var.project_name}/${var.environment}/gateway-id"
       }
     ]
   })
@@ -245,6 +252,10 @@ resource "awscc_bedrockagentcore_runtime" "agent" {
       ENABLE_MEMORY        = var.enable_memory ? "true" : "false"
       MEMORY_ID            = var.enable_memory ? awscc_bedrockagentcore_memory.advisor_memory[0].memory_id : ""
       AWS_REGION           = var.aws_region
+      # The agent reads the Gateway ID from SSM at startup. Passing the ID itself
+      # would bake in whatever value existed at plan time, which is "pending" on
+      # the first apply.
+      GATEWAY_ID_PARAMETER = var.enable_gateway ? "/${var.project_name}/${var.environment}/gateway-id" : ""
     },
     var.enable_observability ? {
       # AgentCore injects the OTLP endpoint and credentials itself. Application
@@ -275,7 +286,9 @@ resource "awscc_bedrockagentcore_runtime" "agent" {
     aws_iam_role_policy.agent_gateway_access,
     aws_iam_role_policy.agent_xray_access,
     time_sleep.iam_propagation,
-    null_resource.build_agent_image
+    null_resource.build_agent_image,
+    # The container reads the Gateway ID from SSM on startup
+    null_resource.gateway
   ]
 }
 

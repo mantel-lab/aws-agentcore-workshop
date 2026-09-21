@@ -136,8 +136,8 @@ CMD ["opentelemetry-instrument", "python", "app.py"]  # <-- Automatic instrument
 **File:** [agent/requirements.txt](../agent/requirements.txt)
 
 ```
-strands-agents[otel]>=0.1.0  # <-- [otel] extra enables auto-instrumentation
-bedrock-agentcore>=0.1.0
+strands-agents[otel]>=1.0.0,<2.0.0  # <-- [otel] extra enables auto-instrumentation
+bedrock-agentcore>=1.0.0,<2.0.0
 ```
 
 **Key points:**

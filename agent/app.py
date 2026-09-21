@@ -26,9 +26,16 @@ import os
 import logging
 import uuid
 from datetime import datetime
+
+import boto3
+import httpx
+from botocore.auth import SigV4Auth
+from botocore.awsrequest import AWSRequest
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
+from mcp.client.streamable_http import streamablehttp_client
 from strands import Agent
 from strands.models import BedrockModel
+from strands.tools.mcp import MCPClient
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -57,96 +64,116 @@ else:
     logger.info("Memory disabled")
 
 # ============================================================================
-# Tool Configuration
+# Gateway Tools
 # ============================================================================
+#
+# AgentCore Gateway is an MCP server. The agent connects to its /mcp endpoint
+# and asks for the tool catalogue, which covers every registered target:
+#   Module 2: get_stock_price  (HTTP target   -> Finnhub)
+#   Module 3: assess_client_suitability (Lambda target -> risk scorer)
+#   Module 4: check_market_holidays (MCP target -> market calendar server)
+#
+# Declaring local Python functions with empty bodies does not work: nothing
+# intercepts the call, the tool returns None, and the model answers from
+# training data instead of live data.
 
-# Module 2: Stock price tool via Gateway HTTP target
-# When Gateway is enabled, we define the tool function and AgentCore automatically
-# routes calls through the Gateway to the matching OpenAPI target based on tool name
 
-def get_stock_price(symbol: str) -> dict:
+class SigV4HTTPXAuth(httpx.Auth):
+    """Signs outgoing MCP requests with SigV4 so the Gateway accepts them."""
+
+    # The signature covers the request body, so httpx must read it before signing
+    requires_request_body = True
+
+    def __init__(self, region: str, service: str = "bedrock-agentcore"):
+        self.region = region
+        self.service = service
+        self.credentials = boto3.Session().get_credentials()
+
+    def auth_flow(self, request: httpx.Request):
+        # Resolve on each request: container credentials rotate
+        frozen = self.credentials.get_frozen_credentials()
+        aws_request = AWSRequest(
+            method=request.method,
+            url=str(request.url),
+            data=request.content,
+            headers=dict(request.headers),
+        )
+        SigV4Auth(frozen, self.service, self.region).add_auth(aws_request)
+        request.headers.update(dict(aws_request.headers))
+        yield request
+
+
+def resolve_gateway_url() -> str:
     """
-    Retrieves current stock price and trading data for a ticker symbol.
-    
-    This tool is routed through AgentCore Gateway to the Finnhub API, which serves
-    US-listed equities only. Prices are in USD.
-    
-    Args:
-        symbol: US-listed ticker symbol (e.g., NVDA, MSFT, TSLA)
-        
-    Returns:
-        dict: Stock quote data with current price, day range, etc.
+    Build the Gateway MCP endpoint URL.
+
+    GATEWAY_URL wins if set. Otherwise the Gateway ID is read from SSM at
+    startup, which avoids baking a stale ID into the runtime configuration.
+    The ID already contains the project prefix, so it is used verbatim.
     """
-    # Implementation handled by AgentCore Gateway
-    # The Gateway routes this to the OpenAPI target based on function name
-    pass
+    explicit_url = os.environ.get("GATEWAY_URL", "").strip()
+    if explicit_url:
+        return explicit_url
 
-# Module 3: Risk scoring tool via Lambda Gateway target
-# When ENABLE_LAMBDA_TARGET is set, AgentCore routes assess_client_suitability
-# calls through the Gateway to the risk scorer Lambda function.
+    parameter_name = os.environ.get("GATEWAY_ID_PARAMETER", "").strip()
+    if not parameter_name:
+        return ""
 
-def assess_client_suitability(ticker: str, risk_profile: str) -> dict:
+    ssm = boto3.client("ssm", region_name=aws_region)
+    gateway_id = ssm.get_parameter(Name=parameter_name)["Parameter"]["Value"]
+    return f"https://{gateway_id}.gateway.bedrock-agentcore.{aws_region}.amazonaws.com/mcp"
+
+
+def connect_to_gateway() -> tuple[MCPClient | None, list]:
     """
-    Assesses whether a stock is suitable for a client's risk profile.
+    Open an MCP session to the Gateway and fetch its tools.
 
-    This tool is routed through AgentCore Gateway to the risk scorer Lambda.
-
-    Args:
-        ticker:       Stock ticker symbol (e.g., AAPL, TSLA)
-        risk_profile: Client risk profile - conservative, moderate, or aggressive
-
-    Returns:
-        dict: Suitability label (clear_match, proceed_with_caution, not_suitable)
-              and plain-language reasoning for the advisor.
+    Returns an empty tool list on failure rather than raising: the container
+    must still start and serve requests so the failure is visible in the logs
+    and in the agent's answers.
     """
-    # Implementation handled by AgentCore Gateway -> Lambda
-    pass
+    try:
+        gateway_url = resolve_gateway_url()
+        if not gateway_url:
+            logger.error("Gateway enabled but neither GATEWAY_URL nor GATEWAY_ID_PARAMETER is set")
+            return None, []
 
-# Module 4: Market calendar tool via MCP Gateway target
-# When ENABLE_MCP_TARGET is set, AgentCore routes check_market_holidays
-# calls through the Gateway to the Market Calendar MCP server.
+        logger.info(f"Connecting to Gateway: {gateway_url}")
+        client = MCPClient(
+            lambda: streamablehttp_client(gateway_url, auth=SigV4HTTPXAuth(aws_region))
+        )
+        # Without start() the session is never running and every tool call fails
+        client.start()
 
-def check_market_holidays(country_code: str = "AU", days_ahead: int = 7) -> dict:
-    """
-    Check for public holidays that affect market trading in the next N days.
+        tools = client.list_tools_sync()
+        logger.info(f"Gateway tools loaded: {[getattr(t, 'tool_name', t) for t in tools]}")
+        return client, tools
+    except Exception:
+        logger.exception("Failed to connect to the Gateway - the agent will run without tools")
+        return None, []
 
-    This tool is routed through AgentCore Gateway to the Market Calendar MCP server,
-    which wraps the Nager.Date public holidays API.
 
-    Args:
-        country_code: ISO 3166-1 alpha-2 country code (e.g. AU, US, GB).
-                      Defaults to AU for Australian markets.
-        days_ahead:   Number of calendar days to look ahead. Defaults to 7.
+enable_gateway = os.environ.get("ENABLE_GATEWAY", "false").lower() == "true"
 
-    Returns:
-        dict: Upcoming holidays with dates, names, and trading impact summary.
-    """
-    # Implementation handled by AgentCore Gateway -> MCP Server
-    pass
-
-# Build tool list based on enabled features
+gateway_client = None
 tools = []
 
-# Tool configuration - simplified registration pattern
-tool_config = [
-    ("ENABLE_GATEWAY", get_stock_price, "Gateway enabled - stock price tool available"),
-    ("ENABLE_LAMBDA_TARGET", assess_client_suitability, "Lambda target enabled - risk scoring tool available"),
-    ("ENABLE_MCP_TARGET", check_market_holidays, "MCP target enabled - market calendar tool available"),
-]
-
-for env_var, tool_func, log_msg in tool_config:
-    if os.environ.get(env_var, "false").lower() == "true":
-        logger.info(log_msg)
-        tools.append(tool_func)
+if enable_gateway:
+    gateway_client, tools = connect_to_gateway()
+else:
+    logger.info("Gateway disabled - agent runs without tools")
 
 # ============================================================================
 # Agent Configuration
 # ============================================================================
 
 # Determine available tools for system prompt
-has_stock_tool = os.environ.get("ENABLE_GATEWAY", "false").lower() == "true"
-has_lambda_tool = os.environ.get("ENABLE_LAMBDA_TARGET", "false").lower() == "true"
-has_mcp_tool = os.environ.get("ENABLE_MCP_TARGET", "false").lower() == "true"
+# Gateway tool names are prefixed with the target name (for example
+# get-stock-price___get_stock_price), so the prompt describes capabilities
+# rather than naming tools the model would have to match exactly.
+has_stock_tool = enable_gateway and bool(tools)
+has_lambda_tool = has_stock_tool and os.environ.get("ENABLE_LAMBDA_TARGET", "false").lower() == "true"
+has_mcp_tool = has_stock_tool and os.environ.get("ENABLE_MCP_TARGET", "false").lower() == "true"
 
 # Build system prompt based on available tools
 base_prompt = """You are MarketPulse, an AI investment brief assistant for financial advisors.
@@ -155,11 +182,11 @@ Your role is to help advisors prepare for client meetings by providing:"""
 
 tool_descriptions = []
 if has_stock_tool:
-    tool_descriptions.append("- Current stock information using the get_stock_price tool")
+    tool_descriptions.append("- Current stock information using the stock price tool")
 if has_lambda_tool:
-    tool_descriptions.append("- Risk assessments using the assess_client_suitability tool")
+    tool_descriptions.append("- Risk assessments using the client suitability tool")
 if has_mcp_tool:
-    tool_descriptions.append("- Market calendar information using the check_market_holidays tool")
+    tool_descriptions.append("- Market calendar information using the market holidays tool")
 
 if not tool_descriptions:
     tool_descriptions.append("- Stock information (when tools are available)")
@@ -177,7 +204,7 @@ if has_mcp_tool:
 
 if has_stock_tool:
     guidelines.append(
-        "Every price you state must come from a get_stock_price call made during this turn. "
+        "Every price you state must come from a stock price tool call made during this turn. "
         "Never estimate a price, never recall one from training data, and never reuse a price "
         "from earlier in the conversation without calling the tool again."
     )
@@ -186,6 +213,12 @@ if has_stock_tool:
         "equities only, so ASX tickers such as BHP.AX return an access error or zeroed quote. "
         "When that happens, say the price is unavailable and why, and suggest a US-listed "
         "alternative if one exists. Do not fill the gap with a made-up number."
+    )
+elif enable_gateway:
+    guidelines.append(
+        "Your tools failed to load, so you have no live market data in this session. Say so "
+        "plainly when asked for prices, suitability assessments or market holidays, and do not "
+        "answer those questions from memory."
     )
 else:
     guidelines.append("In this initial version, you don't have access to live data tools yet. Provide general guidance based on your training data knowledge, and state clearly that any figure you mention is illustrative rather than live market data.")

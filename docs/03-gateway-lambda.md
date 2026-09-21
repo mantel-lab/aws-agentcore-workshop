@@ -110,30 +110,19 @@ def handler(event: dict, context) -> dict:
 
 ## Step 2: Review the Agent Tool Definition
 
-Open `agent/app.py`. The risk scoring tool is already defined and wired to the Gateway:
+No agent code changes are needed. `agent/app.py` already fetches the Gateway's tool
+catalogue at startup, so registering the Lambda target is enough for the tool to appear:
 
 ```python
-def assess_client_suitability(ticker: str, risk_profile: str) -> dict:
-    """
-    Assesses whether a stock is suitable for a client's risk profile.
-
-    This tool is routed through AgentCore Gateway to the risk scorer Lambda.
-
-    Args:
-        ticker:       Stock ticker symbol (e.g., JNJ, NVDA)
-        risk_profile: Client risk profile - conservative, moderate, or aggressive
-
-    Returns:
-        dict: Suitability label and plain-language reasoning for the advisor.
-    """
-    # Implementation handled by AgentCore Gateway -> Lambda
-    pass
-
-if os.environ.get("ENABLE_LAMBDA_TARGET", "false").lower() == "true":
-    tools.append(assess_client_suitability)
+client.start()
+tools = client.list_tools_sync()
+# ["get-stock-price___get_stock_price",
+#  "assess-risk-profile___assess_client_suitability"]
 ```
 
-The function body is empty because AgentCore intercepts the call and routes it to the Gateway Lambda target automatically based on the function name matching the tool schema defined in Terraform.
+The tool schema comes from the `inlinePayload` in `lambda.tf`, not from a Python
+function signature. The Gateway matches the prefix in the tool name back to the target
+and invokes the Lambda with the arguments the model supplied.
 
 ## Step 3: Configure Terraform
 

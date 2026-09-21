@@ -112,22 +112,18 @@ The agent Dockerfile exposes both 8080 (BedrockAgentCoreApp) and 8000. The MCP s
 
 ## Step 3: Review the Agent Update
 
-The `check_market_holidays` tool has been added to `agent/app.py`. When `ENABLE_MCP_TARGET=true`, the agent exposes this tool to AgentCore:
+Again, no agent code changes. Once the MCP target is registered, the Gateway's tool
+catalogue includes the market calendar tool:
 
 ```python
-def check_market_holidays(country_code: str = "AU", days_ahead: int = 7) -> dict:
-    """
-    Check for public holidays that affect market trading in the next N days.
-    ...
-    """
-    # Implementation handled by AgentCore Gateway -> MCP Server
-    pass
-
-if os.environ.get("ENABLE_MCP_TARGET", "false").lower() == "true":
-    tools.append(check_market_holidays)
+tools = client.list_tools_sync()
+# ["get-stock-price___get_stock_price",
+#  "assess-risk-profile___assess_client_suitability",
+#  "market-calendar___check_market_holidays"]
 ```
 
-The function body is empty — AgentCore Gateway intercepts calls to this function by name and routes them to the registered MCP server target. FastMCP on the server side handles the actual Nager.Date API call.
+The schema comes from the MCP server itself: the Gateway calls `tools/list` on the
+server during target synchronisation and caches what FastMCP advertises.
 
 ## Step 4: Configure Terraform
 

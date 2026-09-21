@@ -93,51 +93,62 @@ You will provide this key via `terraform.tfvars` in Step 3. Terraform stores it 
 
 ## Step 2: Review the Agent Code
 
-The stock price tool is already declared in `agent/app.py`. You do not need to modify the agent code for this module.
+The Gateway connection is already written in `agent/app.py`. You do not need to modify the agent code for this module.
 
 Review the relevant section:
 
 ```python
-from bedrock_agentcore.runtime import BedrockAgentCoreApp
+from mcp.client.streamable_http import streamablehttp_client
 from strands import Agent
-from strands.models import BedrockModel
+from strands.tools.mcp import MCPClient
 
-def get_stock_price(symbol: str) -> dict:
-    """
-    Retrieves current stock price and trading data for a ticker symbol.
-    
-    This tool is routed through AgentCore Gateway to the Finnhub API.
-    
-    Args:
-        symbol: Stock ticker symbol (e.g., NVDA, MSFT, TSLA)
-        
-    Returns:
-        dict: Stock quote data with current price, day range, etc.
-    """
-    # Implementation handled by AgentCore Gateway
-    pass
+class SigV4HTTPXAuth(httpx.Auth):
+    """Signs outgoing MCP requests with SigV4 so the Gateway accepts them."""
 
-# Build tool list based on enabled features
-tools = []
+    requires_request_body = True  # the signature covers the body
 
-if os.environ.get("ENABLE_GATEWAY", "false").lower() == "true":
-    tools.append(get_stock_price)
+    def auth_flow(self, request):
+        frozen = self.credentials.get_frozen_credentials()
+        aws_request = AWSRequest(
+            method=request.method,
+            url=str(request.url),
+            data=request.content,
+            headers=dict(request.headers),
+        )
+        SigV4Auth(frozen, "bedrock-agentcore", self.region).add_auth(aws_request)
+        request.headers.update(dict(aws_request.headers))
+        yield request
 
-agent = Agent(
-    model=model,
-    tools=tools,
-    system_prompt=system_prompt
+client = MCPClient(
+    lambda: streamablehttp_client(gateway_url, auth=SigV4HTTPXAuth(aws_region))
 )
+client.start()               # without this the session is never running
+tools = client.list_tools_sync()
+
+agent = Agent(model=model, tools=tools, system_prompt=system_prompt)
 ```
 
 **What's happening here:**
 
-- `get_stock_price` is a plain function with a docstring and type hints only
-- The function body is empty (`pass`) because AgentCore Gateway handles the actual HTTP call
-- The function is appended to `tools` only when `ENABLE_GATEWAY=true` is set as an environment variable
-- Terraform sets this environment variable on the Runtime when `enable_gateway = true` in `terraform.tfvars`
+- AgentCore Gateway is itself an MCP server, reachable at
+  `https://<gateway-id>.gateway.bedrock-agentcore.<region>.amazonaws.com/mcp`
+- The agent asks the Gateway for its tool catalogue, so every registered target
+  (HTTP now, Lambda and MCP in later modules) shows up without agent code changes
+- The gateway uses `AWS_IAM` inbound authorisation, so every request must be SigV4 signed
+  with the runtime's role credentials. `requires_request_body = True` matters: sign an
+  empty body and the Gateway rejects the request
+- The agent reads the Gateway ID from SSM at startup rather than from a baked-in
+  environment variable, so a rebuilt Gateway does not leave the runtime pointing at a
+  stale ID
 
-When the agent calls `get_stock_price`, AgentCore intercepts the call and routes it to the Gateway target. The Gateway matches the call to the registered target by function name (which matches the OpenAPI `operationId`), appends the API key from Secrets Manager, and calls Finnhub directly.
+Tool names arrive prefixed with the target name, for example
+`get-stock-price___get_stock_price`. That prefix is how the Gateway routes a call back to
+the right target.
+
+> **Common mistake:** declaring a local Python function with an empty `pass` body and
+> hoping AgentCore intercepts it. Nothing intercepts it. The tool returns `None`, and the
+> model fills the gap with a plausible-sounding price from its training data.
+
 
 ## Step 3: Configure Terraform
 
@@ -181,7 +192,13 @@ terraform apply
 
 Terraform also updates the Runtime's `ENABLE_GATEWAY` environment variable to `true`. This activates the `get_stock_price` tool in the running agent.
 
-**You do not need to rebuild the agent container.** Terraform updates the Runtime environment variables in place. The existing image picks up the new configuration.
+**You do not need to rebuild the agent container image.** Terraform updates the Runtime environment variables, but a container that is already running keeps the values it started with. The Runtime only picks up the change on its next cold start, so give it a couple of minutes of idle time, or force a restart:
+
+```bash
+cd terraform
+terraform taint awscc_bedrockagentcore_runtime.agent
+terraform apply
+```
 
 **Expected output:**
 
@@ -295,18 +312,25 @@ This is a key concept in AgentCore Gateway:
 
 ### Tool (Agent's View)
 
-```python
-def get_stock_price(symbol: str) -> dict:
-    """Retrieves current stock price and trading data for a ticker symbol."""
-    pass
+```json
+{
+  "name": "get-stock-price___get_stock_price",
+  "description": "Retrieves current stock price and trading data for a US-listed ticker symbol.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {"symbol": {"type": "string"}},
+    "required": ["symbol"]
+  }
+}
 ```
 
-The agent sees a plain Python function signature. It knows:
+This is what `tools/list` returns from the Gateway. The agent knows:
 - **What it does** - Get stock price data
 - **What it needs** - A ticker symbol string
 - **What it returns** - A dict of price data
 
-The implementation is empty because the agent never executes it directly.
+There is no local implementation. The agent sends a `tools/call` request to the Gateway,
+which performs the HTTP call.
 
 ### Target (Gateway's Configuration)
 
