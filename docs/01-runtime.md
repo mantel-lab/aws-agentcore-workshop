@@ -131,7 +131,7 @@ WORKDIR /app
 
 COPY requirements.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir aws-opentelemetry-distro==0.10.1
+    pip install --no-cache-dir "aws-opentelemetry-distro>=0.18.0,<1.0.0"
 
 # Create non-root user for security
 RUN useradd -m -u 1000 bedrock_agentcore

@@ -126,7 +126,7 @@ COPY requirements.txt requirements.txt
 RUN apt-get update && apt-get install -y --no-install-recommends curl && \\
     rm -rf /var/lib/apt/lists/* && \\
     pip install --no-cache-dir -r requirements.txt && \\
-    pip install --no-cache-dir aws-opentelemetry-distro==0.10.1  # <-- OTEL instrumentation
+    pip install --no-cache-dir "aws-opentelemetry-distro>=0.18.0,<1.0.0"  # <-- OTEL instrumentation
 
 # ... container setup ...
 
@@ -171,12 +171,21 @@ log_retention_days   = 7     # CloudWatch log retention
    ```hcl
    environment_variables = {
      AGENT_OBSERVABILITY_ENABLED = "true"
+     UNIFIED_TRACES_DESTINATION_ENABLED = "true"
      OTEL_PYTHON_DISTRO = "aws_distro"
      OTEL_TRACES_EXPORTER = "otlp"
      OTEL_SERVICE_NAME = "marketpulse_workshop_agent"
+     OTEL_AWS_APPLICATION_SIGNALS_ENABLED = "false"
      # ... and more OTEL config
    }
    ```
+
+   AgentCore supplies the OTLP endpoint and credentials. Leaving Application Signals
+   enabled makes the distro export spans to the shared `aws/spans` log group instead
+   of the agent's own log group at
+   `/aws/bedrock-agentcore/runtimes/<agent-id>-<endpoint>`, which is why the workshop
+   sets it to `false`. Span delivery to the agent log group also requires
+   `aws-opentelemetry-distro>=0.18.0`; earlier versions ignore the setting.
 
 2. **IAM policy grants X-Ray permissions** to agent runtime:
    ```json

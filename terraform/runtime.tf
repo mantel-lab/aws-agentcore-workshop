@@ -164,7 +164,9 @@ resource "aws_iam_role_policy" "agent_logs_access" {
         Action = [
           "logs:CreateLogGroup",
           "logs:CreateLogStream",
-          "logs:PutLogEvents"
+          "logs:PutLogEvents",
+          # AgentCore uses this to let X-Ray deliver spans to the agent log group
+          "logs:PutResourcePolicy"
         ]
         Resource = "*"
       }
@@ -245,14 +247,17 @@ resource "awscc_bedrockagentcore_runtime" "agent" {
       AWS_REGION           = var.aws_region
     },
     var.enable_observability ? {
-      # OpenTelemetry configuration for X-Ray tracing
+      # AgentCore injects the OTLP endpoint and credentials itself. Application
+      # Signals must stay off, otherwise the distro exports spans to the shared
+      # aws/spans log group instead of this agent's own log group.
       AGENT_OBSERVABILITY_ENABLED          = "true"
+      UNIFIED_TRACES_DESTINATION_ENABLED   = "true"
       OTEL_PYTHON_DISTRO                   = "aws_distro"
       OTEL_PYTHON_CONFIGURATOR             = "aws_configurator"
       OTEL_TRACES_EXPORTER                 = "otlp"
       OTEL_METRICS_EXPORTER                = "otlp"
       OTEL_EXPORTER_OTLP_PROTOCOL          = "http/protobuf"
-      OTEL_AWS_APPLICATION_SIGNALS_ENABLED = "true"
+      OTEL_AWS_APPLICATION_SIGNALS_ENABLED = "false"
       OTEL_SERVICE_NAME                    = local.agent_name
       OTEL_RESOURCE_ATTRIBUTES             = "service.name=${local.agent_name},deployment.environment=${var.environment}"
       OTEL_TRACES_SAMPLER                  = "always_on"
