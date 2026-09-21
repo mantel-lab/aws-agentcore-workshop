@@ -68,6 +68,17 @@ docker-compose.override.yml
 htmlcov/
 .pytest_cache/
 
+# Local notes and planning docs
+CLAUDE.md
+DEVELOPMENT_PLAN.md
+AGENTIC_LEARNING_PLAN.md
+TERRAFORM_IMPLEMENTATION_PLAN.md
+WORKSHOP_NOTES.md
+
+# Local scripts
+scripts/ask.py
+scripts/destroy.sh
+
 # Secrets
 secrets/
 *.pem
