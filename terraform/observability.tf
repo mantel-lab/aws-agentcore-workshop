@@ -43,7 +43,9 @@ resource "aws_iam_role_policy" "agent_xray_access" {
 resource "aws_xray_sampling_rule" "marketpulse" {
   count = var.enable_observability && var.enable_xray_tracing ? 1 : 0
 
-  rule_name      = "marketpulse-sampling" # Max 32 chars
+  # X-Ray rule names are unique per account/region, so this must include
+  # name_prefix or concurrent deployments in the same account collide.
+  rule_name      = substr("${local.name_prefix}-sampling", 0, 32) # Max 32 chars
   priority       = 1000
   version        = 1
   reservoir_size = 1
